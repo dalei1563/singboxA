@@ -144,7 +144,7 @@ sudo ./scripts/install.sh uninstall    # 卸载
 
 ```yaml
 server:
-  host: "127.0.0.1"
+  host: "0.0.0.0"
   port: 3333
 
 singbox:

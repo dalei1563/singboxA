@@ -1,13 +1,15 @@
 # Binaries
 singboxA
+singboxA_test
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Test binary
-*.test
+# Debian package (distribution artifact)
+*.deb
+debian-pkg/
 
 # Output of go coverage
 *.out

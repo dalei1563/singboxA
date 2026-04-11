@@ -55,6 +55,10 @@ func (r *Router) setupRoutes() {
 
 	r.mux.HandleFunc("/api/cache/clear", r.corsMiddleware(r.handlers.ClearCache))
 
+	// Clash API proxy (解决浏览器 CORS 限制)
+	r.mux.HandleFunc("/api/clash", r.corsMiddleware(r.handlers.ProxyClash))
+	r.mux.HandleFunc("/api/clash/", r.corsMiddleware(r.handlers.ProxyClash))
+
 	// Bypass routes (完全绕过 TUN)
 	r.mux.HandleFunc("/api/bypass", r.corsMiddleware(r.handlers.HandleBypass))
 	r.mux.HandleFunc("/api/bypass/refresh", r.corsMiddleware(r.handlers.RefreshBypass))

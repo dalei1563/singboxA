@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -756,4 +757,65 @@ func (h *Handlers) RefreshBypass(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, map[string]string{"status": "refreshed"})
+}
+
+// ProxyClash 代理 Clash API 请求（解决浏览器 CORS 限制）
+func (h *Handlers) ProxyClash(w http.ResponseWriter, r *http.Request) {
+	// 仅允许 GET 和 DELETE 方法
+	if r.Method != "GET" && r.Method != "DELETE" {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// 获取 clashAPI 地址
+	clashAddr := "http://127.0.0.1:9091"
+
+	// 从路径提取 target（如 /connections、/connections/{id}）
+	path := r.URL.Path
+	path = strings.TrimPrefix(path, "/api/clash")
+	if path == "" {
+		path = "/"
+	}
+
+	// 构建目标 URL
+	targetURL := clashAddr + path
+
+	// 创建代理请求
+	req, err := http.NewRequest(r.Method, targetURL, nil)
+	if err != nil {
+		h.sendError(w, http.StatusBadGateway, fmt.Sprintf("Failed to create request: %v", err))
+		return
+	}
+
+	// 转发查询参数
+	req.URL.RawQuery = r.URL.RawQuery
+
+	// 发送请求
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		h.sendError(w, http.StatusBadGateway, fmt.Sprintf("Failed to connect to Clash API: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	// 读取响应
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		h.sendError(w, http.StatusBadGateway, fmt.Sprintf("Failed to read response: %v", err))
+		return
+	}
+
+	// 设置响应头
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+
+	// 如果是 DELETE 请求，返回 JSON 响应
+	if r.Method == "DELETE" {
+		w.Header().Set("Content-Type", "application/json")
+		h.sendJSON(w, map[string]string{"status": "ok"})
+		return
+	}
+
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
 }

@@ -1,0 +1,11 @@
+Package: singboxa
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: all
+Depends: libc6
+Maintainer: dalei1563 <dalei1563@gmail.com>
+Description: SingBoxA - Proxy management tool based on sing-box
+ A proxy management tool based on sing-box with web UI,
+ Clash subscription support, intelligent routing, and DNS leak prevention.
+Homepage: https://github.com/dalei1563/singboxA

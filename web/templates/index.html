@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SingBox Manager</title>
+    <title>SingBoxA</title>
     <link rel="stylesheet" href="/static/css/tailwind.min.css">
 </head>
 <body class="bg-white text-light-text min-h-screen" x-data="app()" x-init="init()">
@@ -12,7 +12,7 @@
         <!-- Header -->
         <header class="flex items-center justify-between px-6 py-4 bg-light-card border-light-border">
             <div class="flex items-center gap-4">
-                <h1 class="text-xl font-bold text-orange-500">SingBox Manager</h1>
+                <h1 class="text-xl font-bold text-orange-500">SingBoxA</h1>
                 <!-- Status Tag (ngui style) -->
                 <span :class="status.state === 'running' ? 'bg-status-running/20 text-status-running border-status-running/40' : 'bg-status-not-running/20 text-red-400 border-status-not-running/40'"
                       class="px-2 py-0.5 rounded text-xs border">
@@ -229,7 +229,7 @@
                     <h2 class="text-2xl font-bold">节点管理</h2>
                     <button @click="refreshSubscriptions()"
                             :disabled="loading"
-                            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2">
+                            class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
                         <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                         </svg>
@@ -278,12 +278,12 @@
                                             <div class="flex gap-2">
                                                 <button @click="selectNode(node.name)"
                                                         :disabled="node.selected"
-                                                        class="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-sm transition-colors">
+                                                        class="px-3 py-1 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors text-orange-500">
                                                     选择
                                                 </button>
                                                 <button @click="testNodeByName(node.name)"
                                                         :disabled="node.testing"
-                                                        class="px-3 py-1 bg-gray-100 hover:bg-gray-200/30 rounded text-sm transition-colors flex items-center gap-1">
+                                                        class="px-3 py-1 bg-white border-2 border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors flex items-center gap-1 text-gray-600">
                                                     <span x-show="node.testing" class="spinner"></span>
                                                     <span x-show="!node.testing">测速</span>
                                                 </button>
@@ -307,7 +307,7 @@
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold">订阅管理</h2>
                     <button @click="showAddSubscription = true"
-                            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors flex items-center gap-2">
+                            class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg transition-colors flex items-center gap-2 text-orange-500">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                         </svg>
@@ -413,7 +413,7 @@
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="text-lg font-semibold">自定义规则</h3>
                         <button @click="showAddRule = true"
-                                class="px-3 py-1 bg-orange-500 hover:bg-orange-600 rounded-lg text-sm transition-colors">
+                                class="px-3 py-1 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg text-sm transition-colors text-orange-500">
                             添加规则
                         </button>
                     </div>
@@ -507,7 +507,7 @@
                             刷新路由
                         </button>
                         <button @click="showAddBypass = true"
-                                class="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors flex items-center gap-2">
+                                class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg transition-colors flex items-center gap-2 text-orange-500">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                             </svg>
@@ -721,7 +721,7 @@
                             <div class="flex items-center gap-4">
                                 <button @click="clearCache()"
                                         :disabled="clearingCache"
-                                        class="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2">
+                                        class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
                                     <svg x-show="clearingCache" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -734,7 +734,7 @@
 
                     <div class="flex justify-end">
                         <button @click="saveConfig()"
-                                class="px-6 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors">
+                                class="px-6 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg transition-colors text-orange-500">
                             保存设置
                         </button>
                     </div>
@@ -758,11 +758,11 @@
                             <span x-text="connections.length + ' 连接'"></span>
                         </div>
                         <button @click="fetchConnections()"
-                                class="px-3 py-1 bg-gray-100 hover:bg-gray-200/30 rounded-lg transition-colors text-sm">
+                                class="px-3 py-1 bg-white border-2 border-gray-300 hover:bg-gray-50 rounded-lg transition-colors text-sm text-gray-600">
                             刷新
                         </button>
                         <button @click="closeAllConnections()"
-                                class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm">
+                                class="px-3 py-1 bg-white border-2 border-red-500 hover:bg-red-50 rounded-lg transition-colors text-sm text-red-500">
                             断开全部
                         </button>
                     </div>
@@ -1083,7 +1083,7 @@
 
                 async fetchConnections() {
                     try {
-                        const res = await fetch('http://127.0.0.1:9091/connections');
+                        const res = await fetch('/api/clash/connections');
                         const data = await res.json();
                         this.connections = data.connections || [];
                         this.connStats = {
@@ -1109,7 +1109,7 @@
 
                 async closeConnection(id) {
                     try {
-                        await fetch(`http://127.0.0.1:9091/connections/${id}`, { method: 'DELETE' });
+                        await fetch(`/api/clash/connections/${id}`, { method: 'DELETE' });
                         await this.fetchConnections();
                     } catch (e) {
                         this.showToast('断开连接失败', 'error');

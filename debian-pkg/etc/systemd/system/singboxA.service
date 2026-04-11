@@ -1,0 +1,23 @@
+[Unit]
+Description=SingBoxA Manager
+Documentation=https://github.com/dalei1563/singboxA
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=SINGBOX_DATA_DIR=/var/lib/singboxA
+ExecStart=/usr/local/bin/singboxA
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

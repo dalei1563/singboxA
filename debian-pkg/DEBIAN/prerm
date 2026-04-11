@@ -1,0 +1,23 @@
+#!/bin/bash
+#
+# prerm script for singboxa
+#
+
+set -e
+
+case "${1}" in
+    remove|upgrade|deconfigure)
+        echo "[SingBoxA] Stopping service..."
+        systemctl stop singboxA 2>/dev/null || true
+        systemctl disable singboxA 2>/dev/null || true
+        echo "[SingBoxA] Service stopped"
+        ;;
+    failed-upgrade)
+        ;;
+    *)
+        echo "prerm called with unknown argument \`${1}'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

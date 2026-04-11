@@ -44,6 +44,30 @@ sudo ./scripts/install.sh install
 2. 添加 Clash 订阅链接
 3. 选择节点，点击"启动服务"
 
+### Debian/Ubuntu 一键安装（推荐）
+
+下载 deb 安装包，直接安装无需克隆项目：
+
+```bash
+# 安装
+sudo dpkg -i singboxa_1.0.0_amd64.deb
+
+# 启动服务
+sudo systemctl enable --now singboxA
+```
+
+安装完成后打开浏览器访问 `http://localhost:3333`
+
+### 卸载
+
+```bash
+# 卸载软件包
+sudo dpkg -r singboxa
+
+# 清除数据目录（可选）
+sudo rm -rf /var/lib/singboxA
+```
+
 ### 手动安装
 
 ```bash
@@ -116,7 +140,7 @@ sudo ./scripts/install.sh uninstall    # 卸载
 
 ### 配置文件
 
-`/var/lib/singbox-client/config.yaml`:
+`/var/lib/singboxA/config.yaml`:
 
 ```yaml
 server:

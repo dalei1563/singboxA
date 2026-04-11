@@ -1,0 +1,82 @@
+#!/bin/bash
+#
+# postinst script for singboxa
+#
+
+set -e
+
+SINGBOX_VERSION="1.13.7"
+INSTALL_DIR="/usr/local/bin"
+DATA_DIR="/var/lib/singboxA"
+
+case "${1}" in
+    configure)
+        echo "[SingBoxA] Installing..."
+
+        # Detect architecture
+        ARCH=$(uname -m)
+        case $ARCH in
+            x86_64)  SINGBOX_ARCH="amd64" ;;
+            aarch64) SINGBOX_ARCH="arm64" ;;
+            armv7l)  SINGBOX_ARCH="armv7" ;;
+            *)
+                echo "[SingBoxA] Unsupported architecture: $ARCH"
+                exit 1
+                ;;
+        esac
+        echo "[SingBoxA] Architecture: $SINGBOX_ARCH"
+
+        # Extract and install sing-box for current architecture
+        TARBALL="${INSTALL_DIR}/sing-box-${SINGBOX_VERSION}-linux-${SINGBOX_ARCH}.tar.gz"
+        if [ -f "${TARBALL}" ]; then
+            echo "[SingBoxA] Extracting sing-box ${SINGBOX_VERSION}..."
+            tar -xzf "${TARBALL}" -C "${INSTALL_DIR}/" \
+                sing-box-${SINGBOX_VERSION}-linux-${SINGBOX_ARCH}/sing-box
+            mv "${INSTALL_DIR}/sing-box-${SINGBOX_VERSION}-linux-${SINGBOX_ARCH}/sing-box" "${INSTALL_DIR}/sing-box"
+            rm -rf "${INSTALL_DIR}/sing-box-${SINGBOX_VERSION}-linux-${SINGBOX_ARCH}"
+            chmod +x "${INSTALL_DIR}/sing-box"
+
+            # Set capabilities for TUN
+            setcap cap_net_admin,cap_net_bind_service=+ep "${INSTALL_DIR}/sing-box" 2>/dev/null || true
+            echo "[SingBoxA] sing-box installed: ${SINGBOX_VERSION}"
+        else
+            echo "[SingBoxA] ERROR: sing-box tarball not found for architecture ${SINGBOX_ARCH}"
+            exit 1
+        fi
+
+        # Remove other architecture tarballs to save space
+        rm -f "${INSTALL_DIR}"/sing-box-${SINGBOX_VERSION}-linux-*.tar.gz
+
+        # Set permissions for singboxA
+        chmod +x "${INSTALL_DIR}/singboxA"
+
+        # Create data directory
+        mkdir -p "${DATA_DIR}"/{subscriptions,singbox}
+
+        # Reload systemd
+        systemctl daemon-reload
+
+        echo "[SingBoxA] Installation complete!"
+        echo ""
+        echo "  Web Interface:  http://localhost:3333"
+        echo "  Data Directory:  ${DATA_DIR}"
+        echo ""
+        echo "  Commands:"
+        echo "    Start:   sudo systemctl start singboxA"
+        echo "    Stop:    sudo systemctl stop singboxA"
+        echo "    Status:  sudo systemctl status singboxA"
+        echo "    Logs:    sudo journalctl -u singboxA -f"
+        echo ""
+        echo "  To enable and start service:"
+        echo "    sudo systemctl enable --now singboxA"
+        echo ""
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument \`${1}'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

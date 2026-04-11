@@ -52,44 +52,33 @@ check_command() {
 }
 
 # ==================== sing-box Installation ====================
-get_singbox_latest_version() {
-    curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | \
-        grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
-}
+# sing-box version bundled with this installer
+BUNDLED_SINGBOX_VERSION="1.13.7"
+BUNDLED_SINGBOX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 install_singbox() {
     log_step "Installing sing-box..."
 
-    local version
-    version=$(get_singbox_latest_version)
+    local src_file="${BUNDLED_SINGBOX_DIR}/sing-box-${BUNDLED_SINGBOX_VERSION}-linux-${SINGBOX_ARCH}.tar.gz"
 
-    if [ -z "$version" ]; then
-        log_error "Failed to get sing-box version"
+    # Check if bundled tarball exists
+    if [ -f "${src_file}" ]; then
+        log_info "Using bundled sing-box: ${BUNDLED_SINGBOX_VERSION}"
+        tar -xzf "$src_file" -C "$INSTALL_DIR/" sing-box-${BUNDLED_SINGBOX_VERSION}-linux-${SINGBOX_ARCH}/sing-box
+        mv "$INSTALL_DIR/sing-box-${BUNDLED_SINGBOX_VERSION}-linux-${SINGBOX_ARCH}/sing-box" "$INSTALL_DIR/sing-box"
+        rm -rf "$INSTALL_DIR/sing-box-${BUNDLED_SINGBOX_VERSION}-linux-${SINGBOX_ARCH}"
+        chmod +x "$INSTALL_DIR/sing-box"
+
+        # Set capabilities for TUN
+        setcap cap_net_admin,cap_net_bind_service=+ep "$INSTALL_DIR/sing-box" 2>/dev/null || true
+
+        log_info "sing-box installed: ${BUNDLED_SINGBOX_VERSION}"
+    else
+        log_error "Bundled sing-box not found: ${src_file}"
+        log_error "Please ensure sing-box-${BUNDLED_SINGBOX_VERSION}-linux-${SINGBOX_ARCH}.tar.gz exists in:"
+        log_error "  ${BUNDLED_SINGBOX_DIR}/"
         return 1
     fi
-
-    log_info "sing-box version: $version"
-
-    local url="https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-linux-${SINGBOX_ARCH}.tar.gz"
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-
-    log_info "Downloading sing-box..."
-    if ! curl -L -o "$tmp_dir/sing-box.tar.gz" "$url" 2>/dev/null; then
-        rm -rf "$tmp_dir"
-        log_error "Download failed"
-        return 1
-    fi
-
-    tar -xzf "$tmp_dir/sing-box.tar.gz" -C "$tmp_dir"
-    cp "$tmp_dir/sing-box-${version}-linux-${SINGBOX_ARCH}/sing-box" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/sing-box"
-
-    # Set capabilities for TUN
-    setcap cap_net_admin,cap_net_bind_service=+ep "$INSTALL_DIR/sing-box" 2>/dev/null || true
-
-    rm -rf "$tmp_dir"
-    log_info "sing-box installed: $version"
 }
 
 # ==================== singboxA Installation ====================
@@ -164,18 +153,8 @@ do_install() {
     check_root
     detect_arch
 
-    # Install sing-box
-    if check_command sing-box; then
-        local current_ver
-        current_ver=$(sing-box version 2>/dev/null | head -n1 | awk '{print $3}')
-        log_info "sing-box already installed: $current_ver"
-
-        read -p "Update sing-box to latest? [y/N] " -n 1 -r
-        echo
-        [[ $REPLY =~ ^[Yy]$ ]] && install_singbox
-    else
-        install_singbox
-    fi
+    # Install sing-box from bundled
+    install_singbox
 
     # Build client
     build_client
@@ -272,12 +251,9 @@ do_update() {
     check_root
     detect_arch
 
-    # Update sing-box
-    read -p "Update sing-box? [Y/n] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        install_singbox
-    fi
+    # Reinstall sing-box from bundled
+    log_step "Reinstalling sing-box from bundled..."
+    install_singbox
 
     # Rebuild client
     log_step "Rebuilding singboxA..."

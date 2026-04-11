@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+# postrm script for singboxa
+#
+
+set -e
+
+case "${1}" in
+    purge|remove)
+        echo "[SingBoxA] Cleaning up..."
+
+        # Remove service file
+        rm -f /etc/systemd/system/singboxA.service
+        systemctl daemon-reload
+
+        # Ask user whether to remove data (interactive in real removal)
+        # Data directory removal is intentionally left to user
+        echo "[SingBoxA] Package removed"
+        echo "[SingBoxA] Data directory kept at /var/lib/singboxA"
+        echo "[SingBoxA] To remove data: sudo rm -rf /var/lib/singboxA"
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+    *)
+        echo "postrm called with unknown argument \`${1}'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

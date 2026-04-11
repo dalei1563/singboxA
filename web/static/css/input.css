@@ -4,6 +4,161 @@
 
 [x-cloak] { display: none !important; }
 
+/* Element Plus Dark Theme Overrides */
+.dark {
+    --el-color-primary: #506da4;
+    --el-color-success: #506da4;
+    --el-color-danger: rgba(255, 69, 58, 0.73);
+    --el-text-color-primary: #e2e8f0;
+    --el-text-color-regular: #94a3b8;
+    --el-bg-color: #1e293b;
+    --el-bg-color-overlay: #1e293b;
+    --el-border-color: #334155;
+    --el-border-color-light: #475569;
+    --el-fill-color-blank: #0f172a;
+
+    /* ngui status colors */
+    --status-running: #506da4;
+    --status-not-running: rgba(255, 69, 58, 0.4);
+    --status-checking: #94a3b8;
+    --row-selected: #a8cff0;
+    --row-running: rgba(80, 109, 164, 0.1);
+    --row-not-running: rgba(255, 69, 58, 0.4);
+}
+
+/* Element Plus Tabs Dark Style */
+.dark .el-tabs__header {
+    background-color: transparent;
+    margin-bottom: 0;
+}
+
+.dark .el-tabs__nav-wrap::after {
+    background-color: #334155;
+}
+
+.dark .el-tabs__item {
+    color: #94a3b8;
+    font-size: 14px;
+}
+
+.dark .el-tabs__item.is-active {
+    color: #506da4;
+}
+
+.dark .el-tabs__active-bar {
+    background-color: #506da4;
+}
+
+/* Element Plus Button Dark Style */
+.dark .el-button--primary {
+    --el-button-bg-color: #506da4;
+    --el-button-border-color: #506da4;
+    --el-button-hover-bg-color: #6b8cc4;
+    --el-button-hover-border-color: #6b8cc4;
+}
+
+.dark .el-button--danger {
+    --el-button-bg-color: rgba(255, 69, 58, 0.73);
+    --el-button-border-color: rgba(255, 69, 58, 0.73);
+}
+
+/* Element Plus Table Dark Style */
+.dark .el-table {
+    --el-table-bg-color: #1e293b;
+    --el-table-tr-bg-color: #1e293b;
+    --el-table-header-bg-color: #334155;
+    --el-table-row-hover-bg-color: #334155;
+    --el-table-border-color: #334155;
+    --el-table-text-color: #e2e8f0;
+    --el-table-header-text-color: #e2e8f0;
+}
+
+.dark .el-table .selected-row {
+    background-color: #a8cff0 !important;
+}
+
+.dark .el-table .running-row {
+    background-color: rgba(80, 109, 164, 0.1);
+}
+
+/* Element Plus Dialog Dark Style */
+.dark .el-dialog {
+    --el-dialog-bg-color: #1e293b;
+    --el-dialog-title-font-size: 18px;
+}
+
+.dark .el-dialog__title {
+    color: #e2e8f0;
+}
+
+.dark .el-dialog__body {
+    color: #94a3b8;
+}
+
+/* Element Plus Form Dark Style */
+.dark .el-form-item__label {
+    color: #94a3b8;
+}
+
+.dark .el-input__wrapper {
+    background-color: #0f172a;
+    box-shadow: 0 0 0 1px #334155 inset;
+}
+
+.dark .el-input__inner {
+    color: #e2e8f0;
+}
+
+.dark .el-select__wrapper {
+    background-color: #0f172a;
+}
+
+/* Element Plus Tag Dark Style */
+.dark .el-tag--success {
+    background-color: rgba(80, 109, 164, 0.2);
+    border-color: #506da4;
+    color: #506da4;
+}
+
+.dark .el-tag--danger {
+    background-color: rgba(255, 69, 58, 0.2);
+    border-color: rgba(255, 69, 58, 0.4);
+    color: rgba(255, 69, 58, 0.8);
+}
+
+.dark .el-tag--info {
+    background-color: rgba(148, 163, 184, 0.2);
+    border-color: #94a3b8;
+    color: #94a3b8;
+}
+
+/* ngui Status Colors */
+.status-running {
+    color: #506da4;
+}
+
+.status-not-running {
+    color: rgba(255, 69, 58, 0.73);
+}
+
+.status-checking {
+    color: #94a3b8;
+}
+
+.bg-running {
+    background-color: rgba(80, 109, 164, 0.2);
+}
+
+.bg-not-running {
+    background-color: rgba(255, 69, 58, 0.2);
+}
+
+/* Remix Icon sizing */
+.ri {
+    font-size: 1.25rem;
+}
+
+/* Spinner animation */
 .spinner {
     border: 2px solid #334155;
     border-top: 2px solid #3b82f6;
@@ -18,6 +173,7 @@
     100% { transform: rotate(360deg); }
 }
 
+/* Scrollbar */
 .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
 }

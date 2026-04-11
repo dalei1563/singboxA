@@ -238,7 +238,7 @@ func (g *ConfigGenerator) Generate(nodes []Outbound, cfg config.Config, state co
 			Enabled:     true,
 			Path:        filepath.Join(g.dataDir, "singbox", "cache.db"),
 			StoreFakeIP: true, // 持久化 FakeIP 映射
-			StoreRDRC:   true, // 持久化 DNS 规则检查结果
+			StoreRDRC:   false, // 禁用 DNS 规则检查结果缓存，避免初始化超时
 		},
 	}
 

@@ -4,141 +4,147 @@
 
 [x-cloak] { display: none !important; }
 
-/* Element Plus Dark Theme Overrides */
-.dark {
-    --el-color-primary: #506da4;
-    --el-color-success: #506da4;
-    --el-color-danger: rgba(255, 69, 58, 0.73);
-    --el-text-color-primary: #e2e8f0;
-    --el-text-color-regular: #94a3b8;
-    --el-bg-color: #1e293b;
-    --el-bg-color-overlay: #1e293b;
-    --el-border-color: #334155;
-    --el-border-color-light: #475569;
-    --el-fill-color-blank: #0f172a;
-
-    /* ngui status colors */
-    --status-running: #506da4;
-    --status-not-running: rgba(255, 69, 58, 0.4);
-    --status-checking: #94a3b8;
-    --row-selected: #a8cff0;
-    --row-running: rgba(80, 109, 164, 0.1);
-    --row-not-running: rgba(255, 69, 58, 0.4);
+/* Light Theme Base Styles (default) */
+body {
+    background-color: #ffffff;
+    color: #1e293b;
 }
 
-/* Element Plus Tabs Dark Style */
-.dark .el-tabs__header {
+/* Element Plus Light Theme Overrides */
+:root {
+    --el-color-primary: #f97316;
+    --el-color-success: #22c55e;
+    --el-color-danger: #ef4444;
+    --el-text-color-primary: #1e293b;
+    --el-text-color-regular: #64748b;
+    --el-bg-color: #ffffff;
+    --el-bg-color-overlay: #f8fafc;
+    --el-border-color: #e2e8f0;
+    --el-border-color-light: #f1f5f9;
+    --el-fill-color-blank: #ffffff;
+
+    /* ngui status colors (light mode) */
+    --status-running: #22c55e;
+    --status-not-running: #ef4444;
+    --status-checking: #94a3b8;
+    --row-selected: #fed7aa;
+    --row-running: rgba(34, 197, 94, 0.1);
+    --row-not-running: rgba(239, 68, 68, 0.1);
+}
+
+/* Element Plus Tabs Light Style */
+.el-tabs__header {
     background-color: transparent;
     margin-bottom: 0;
 }
 
-.dark .el-tabs__nav-wrap::after {
-    background-color: #334155;
+.el-tabs__nav-wrap::after {
+    background-color: #e2e8f0;
 }
 
-.dark .el-tabs__item {
-    color: #94a3b8;
+.el-tabs__item {
+    color: #64748b;
     font-size: 14px;
 }
 
-.dark .el-tabs__item.is-active {
-    color: #506da4;
+.el-tabs__item.is-active {
+    color: #f97316;
 }
 
-.dark .el-tabs__active-bar {
-    background-color: #506da4;
+.el-tabs__active-bar {
+    background-color: #f97316;
 }
 
-/* Element Plus Button Dark Style */
-.dark .el-button--primary {
-    --el-button-bg-color: #506da4;
-    --el-button-border-color: #506da4;
-    --el-button-hover-bg-color: #6b8cc4;
-    --el-button-hover-border-color: #6b8cc4;
+/* Element Plus Button Style */
+.el-button--primary {
+    --el-button-bg-color: #f97316;
+    --el-button-border-color: #f97316;
+    --el-button-hover-bg-color: #ea580c;
+    --el-button-hover-border-color: #ea580c;
 }
 
-.dark .el-button--danger {
-    --el-button-bg-color: rgba(255, 69, 58, 0.73);
-    --el-button-border-color: rgba(255, 69, 58, 0.73);
+.el-button--danger {
+    --el-button-bg-color: #ef4444;
+    --el-button-border-color: #ef4444;
 }
 
-/* Element Plus Table Dark Style */
-.dark .el-table {
-    --el-table-bg-color: #1e293b;
-    --el-table-tr-bg-color: #1e293b;
-    --el-table-header-bg-color: #334155;
-    --el-table-row-hover-bg-color: #334155;
-    --el-table-border-color: #334155;
-    --el-table-text-color: #e2e8f0;
-    --el-table-header-text-color: #e2e8f0;
+/* Element Plus Table Light Style */
+.el-table {
+    --el-table-bg-color: #ffffff;
+    --el-table-tr-bg-color: #ffffff;
+    --el-table-header-bg-color: #f8fafc;
+    --el-table-row-hover-bg-color: #f1f5f9;
+    --el-table-border-color: #e2e8f0;
+    --el-table-text-color: #1e293b;
+    --el-table-header-text-color: #1e293b;
 }
 
-.dark .el-table .selected-row {
-    background-color: #a8cff0 !important;
+.el-table .selected-row {
+    background-color: #fed7aa !important;
 }
 
-.dark .el-table .running-row {
-    background-color: rgba(80, 109, 164, 0.1);
+.el-table .running-row {
+    background-color: rgba(34, 197, 94, 0.1);
 }
 
-/* Element Plus Dialog Dark Style */
-.dark .el-dialog {
-    --el-dialog-bg-color: #1e293b;
+/* Element Plus Dialog Light Style */
+.el-dialog {
+    --el-dialog-bg-color: #ffffff;
     --el-dialog-title-font-size: 18px;
 }
 
-.dark .el-dialog__title {
-    color: #e2e8f0;
+.el-dialog__title {
+    color: #1e293b;
 }
 
-.dark .el-dialog__body {
-    color: #94a3b8;
+.el-dialog__body {
+    color: #64748b;
 }
 
-/* Element Plus Form Dark Style */
-.dark .el-form-item__label {
-    color: #94a3b8;
+/* Element Plus Form Light Style */
+.el-form-item__label {
+    color: #64748b;
 }
 
-.dark .el-input__wrapper {
-    background-color: #0f172a;
-    box-shadow: 0 0 0 1px #334155 inset;
+.el-input__wrapper {
+    background-color: #ffffff;
+    box-shadow: 0 0 0 1px #e2e8f0 inset;
 }
 
-.dark .el-input__inner {
-    color: #e2e8f0;
+.el-input__inner {
+    color: #1e293b;
 }
 
-.dark .el-select__wrapper {
-    background-color: #0f172a;
+.el-select__wrapper {
+    background-color: #ffffff;
 }
 
-/* Element Plus Tag Dark Style */
-.dark .el-tag--success {
-    background-color: rgba(80, 109, 164, 0.2);
-    border-color: #506da4;
-    color: #506da4;
+/* Element Plus Tag Light Style */
+.el-tag--success {
+    background-color: rgba(34, 197, 94, 0.2);
+    border-color: #22c55e;
+    color: #16a34a;
 }
 
-.dark .el-tag--danger {
-    background-color: rgba(255, 69, 58, 0.2);
-    border-color: rgba(255, 69, 58, 0.4);
-    color: rgba(255, 69, 58, 0.8);
+.el-tag--danger {
+    background-color: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+    color: #dc2626;
 }
 
-.dark .el-tag--info {
-    background-color: rgba(148, 163, 184, 0.2);
+.el-tag--info {
+    background-color: rgba(100, 116, 139, 0.2);
     border-color: #94a3b8;
-    color: #94a3b8;
+    color: #64748b;
 }
 
-/* ngui Status Colors */
+/* ngui Status Colors (light mode) */
 .status-running {
-    color: #506da4;
+    color: #22c55e;
 }
 
 .status-not-running {
-    color: rgba(255, 69, 58, 0.73);
+    color: #ef4444;
 }
 
 .status-checking {
@@ -146,11 +152,11 @@
 }
 
 .bg-running {
-    background-color: rgba(80, 109, 164, 0.2);
+    background-color: rgba(34, 197, 94, 0.2);
 }
 
 .bg-not-running {
-    background-color: rgba(255, 69, 58, 0.2);
+    background-color: rgba(239, 68, 68, 0.2);
 }
 
 /* Remix Icon sizing */
@@ -160,8 +166,8 @@
 
 /* Spinner animation */
 .spinner {
-    border: 2px solid #334155;
-    border-top: 2px solid #3b82f6;
+    border: 2px solid #e2e8f0;
+    border-top: 2px solid #f97316;
     border-radius: 50%;
     width: 16px;
     height: 16px;
@@ -179,10 +185,10 @@
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
-    background: #1e293b;
+    background: #f1f5f9;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: #475569;
+    background: #cbd5e1;
     border-radius: 3px;
 }

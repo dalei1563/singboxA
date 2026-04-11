@@ -53,12 +53,50 @@ case "${1}" in
         # Create data directory
         mkdir -p "${DATA_DIR}"/{subscriptions,singbox}
 
+        # Ensure config.yaml exists with correct defaults
+        if [ ! -f "${DATA_DIR}/config.yaml" ]; then
+            echo "[SingBoxA] Creating default config.yaml..."
+            cat > "${DATA_DIR}/config.yaml" << 'EOF'
+server:
+  host: "0.0.0.0"
+  port: 3333
+
+singbox:
+  binary_path: "/usr/local/bin/sing-box"
+  config_path: "/var/lib/singboxA/singbox/config.json"
+  log_level: "info"
+
+dns:
+  domestic_servers:
+    - "223.5.5.5"
+    - "119.29.29.29"
+  proxy_servers:
+    - "8.8.8.8"
+    - "1.1.1.1"
+
+proxy:
+  tun_enabled: false
+  tun_address: "172.19.0.1/30"
+  tun_stack: "system"
+  auto_route: true
+  strict_route: true
+  socks5_port: 10808
+  http_proxy_port: 10809
+
+subscription:
+  auto_update: true
+  update_interval: 60
+EOF
+            chmod 600 "${DATA_DIR}/config.yaml"
+        fi
+
         # Reload systemd
         systemctl daemon-reload
 
         echo "[SingBoxA] Installation complete!"
         echo ""
         echo "  Web Interface:  http://localhost:3333"
+        echo "  (Bind to 0.0.0.0, accessible from all interfaces)"
         echo "  Data Directory:  ${DATA_DIR}"
         echo ""
         echo "  Commands:"

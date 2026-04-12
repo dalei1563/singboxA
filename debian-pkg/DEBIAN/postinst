@@ -53,6 +53,28 @@ case "${1}" in
         # Create data directory
         mkdir -p "${DATA_DIR}"/{subscriptions,singbox}
 
+        # Pre-download rule files for first-time installation
+        echo "[SingBoxA] Pre-downloading rule files..."
+        SINGBOX_DATA_DIR="${DATA_DIR}/singbox"
+        RULE_URLS="
+            https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/chnroutes.txt.srs
+            https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/accelerated-domains.china.conf.srs
+            https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/apple.china.conf.srs
+            https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/google.china.conf.srs
+            https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs
+            https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs
+            https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs
+        "
+        for url in $RULE_URLS; do
+            filename=$(basename "$url")
+            filepath="${SINGBOX_DATA_DIR}/${filename}"
+            if [ ! -f "$filepath" ]; then
+                echo "  Downloading $filename..."
+                curl -fsSL -o "$filepath" "$url" 2>/dev/null || true
+            fi
+        done
+        echo "[SingBoxA] Rule files ready"
+
         # Ensure config.yaml exists with correct defaults
         if [ ! -f "${DATA_DIR}/config.yaml" ]; then
             echo "[SingBoxA] Creating default config.yaml..."

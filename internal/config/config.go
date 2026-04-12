@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -67,12 +68,13 @@ type Subscription struct {
 }
 
 type AppState struct {
-	Subscriptions []Subscription `yaml:"subscriptions" json:"subscriptions"`
-	SelectedNode  string         `yaml:"selected_node" json:"selected_node"`
-	ProxyMode     string         `yaml:"proxy_mode" json:"proxy_mode"` // global, rule, direct
-	CustomRules   []CustomRule   `yaml:"custom_rules" json:"custom_rules"`
-	BypassList    []BypassEntry  `yaml:"bypass_list" json:"bypass_list"` // 完全绕过 TUN 的地址
-	AutoStart     bool           `yaml:"auto_start" json:"auto_start"`   // 启动时自动启动 sing-box
+	Subscriptions   []Subscription `yaml:"subscriptions" json:"subscriptions"`
+	SelectedNode    string         `yaml:"selected_node" json:"selected_node"`
+	ProxyMode       string         `yaml:"proxy_mode" json:"proxy_mode"` // global, rule, direct
+	CustomRules     []CustomRule   `yaml:"custom_rules" json:"custom_rules"`
+	BypassList      []BypassEntry  `yaml:"bypass_list" json:"bypass_list"` // 完全绕过 TUN 的地址
+	AutoStart       bool           `yaml:"auto_start" json:"auto_start"`   // 启动时自动启动 sing-box
+	LastRuleUpdate  string         `yaml:"last_rule_update" json:"last_rule_update"` // 上次规则更新时间
 }
 
 // BypassEntry 表示一个需要完全绕过 TUN 的地址
@@ -304,6 +306,19 @@ func (m *Manager) SetProxyMode(mode string) error {
 	defer m.mu.Unlock()
 	m.state.ProxyMode = mode
 	return m.saveState()
+}
+
+func (m *Manager) SetLastRuleUpdate() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state.LastRuleUpdate = time.Now().Format("2006-01-02 15:04:05")
+	return m.saveState()
+}
+
+func (m *Manager) GetLastRuleUpdate() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.state.LastRuleUpdate
 }
 
 func (m *Manager) GetCustomRules() []CustomRule {

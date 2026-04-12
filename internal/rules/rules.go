@@ -31,6 +31,16 @@ func (rm *RuleManager) SetProxyMode(mode string) error {
 	return rm.cfgMgr.SetProxyMode(mode)
 }
 
+// GetLastRuleUpdate returns the last rule update time
+func (rm *RuleManager) GetLastRuleUpdate() string {
+	return rm.cfgMgr.GetLastRuleUpdate()
+}
+
+// SetLastRuleUpdate updates the last rule update time
+func (rm *RuleManager) SetLastRuleUpdate() error {
+	return rm.cfgMgr.SetLastRuleUpdate()
+}
+
 // GetCustomRules returns all custom rules
 func (rm *RuleManager) GetCustomRules() []config.CustomRule {
 	return rm.cfgMgr.GetCustomRules()

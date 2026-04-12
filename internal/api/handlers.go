@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -395,10 +396,11 @@ func (h *Handlers) HandleRules(w http.ResponseWriter, r *http.Request) {
 		geoips := h.rulesMgr.GetAvailableGeoips()
 
 		h.sendJSON(w, map[string]interface{}{
-			"custom_rules":   rules,
-			"default_rules":  defaultRules,
-			"geosite_values": geosites,
-			"geoip_values":   geoips,
+			"custom_rules":    rules,
+			"default_rules":   defaultRules,
+			"geosite_values":  geosites,
+			"geoip_values":    geoips,
+			"last_rule_update": h.rulesMgr.GetLastRuleUpdate(),
 		})
 	case "PUT":
 		var rules []config.CustomRule
@@ -428,6 +430,62 @@ func (h *Handlers) HandleRules(w http.ResponseWriter, r *http.Request) {
 	default:
 		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
+}
+
+func (h *Handlers) RefreshRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// Update last rule update time
+	if err := h.rulesMgr.SetLastRuleUpdate(); err != nil {
+		h.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update rule time: %v", err))
+		return
+	}
+
+	// Delete rule cache files to force re-download
+	dataDir := h.cfgMgr.GetDataDir()
+	ruleCacheDir := filepath.Join(dataDir, "singbox")
+	if err := h.clearRuleCache(ruleCacheDir); err != nil {
+		// Log but don't fail - cache clear is not critical
+		fmt.Printf("Warning: failed to clear rule cache: %v\n", err)
+	}
+
+	// Regenerate config and restart if running
+	if h.processMgr.GetState() == singbox.StateRunning {
+		if err := h.generateConfig(); err != nil {
+			h.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to generate config: %v", err))
+			return
+		}
+		if err := h.processMgr.Restart(); err != nil {
+			h.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to restart: %v", err))
+			return
+		}
+	}
+
+	h.sendJSON(w, map[string]interface{}{
+		"success":         true,
+		"last_rule_update": h.rulesMgr.GetLastRuleUpdate(),
+	})
+}
+
+// clearRuleCache deletes .srs cache files in the given directory
+func (h *Handlers) clearRuleCache(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".srs") {
+			filePath := filepath.Join(dir, entry.Name())
+			if err := os.Remove(filePath); err != nil {
+				return err
+			}
+			fmt.Printf("Deleted rule cache: %s\n", filePath)
+		}
+	}
+	return nil
 }
 
 func (h *Handlers) HandleProxyMode(w http.ResponseWriter, r *http.Request) {

@@ -400,7 +400,21 @@
 
             <!-- Rules page -->
             <div x-show="currentTab === 'rules'" x-cloak class="p-6">
-                <h2 class="text-2xl font-bold mb-6">规则设置</h2>
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold">规则设置</h2>
+                    <div class="flex items-center gap-4">
+                        <span x-show="rulesInfo.last_rule_update" class="text-sm text-light-muted">
+                            上次更新: <span x-text="rulesInfo.last_rule_update"></span>
+                        </span>
+                        <button @click="refreshRules()"
+                                class="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors flex items-center gap-2 text-white">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            更新规则
+                        </button>
+                    </div>
+                </div>
 
                 <!-- Default rules -->
                 <div class="bg-white rounded-lg p-6 border border-light-border mb-6">
@@ -912,7 +926,8 @@
                     default_rules: [],
                     custom_rules: [],
                     geosite_values: [],
-                    geoip_values: []
+                    geoip_values: [],
+                    last_rule_update: ''
                 },
                 appConfig: null,
                 logs: [],
@@ -1013,6 +1028,22 @@
                         }
                     } catch (e) {
                         console.error('Failed to fetch rules:', e);
+                    }
+                },
+
+                async refreshRules() {
+                    try {
+                        const res = await fetch('/api/rules/refresh', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('规则已更新', 'success');
+                            // 重新获取规则信息以更新界面
+                            await this.fetchRules();
+                        } else {
+                            this.showToast(data.error || '更新失败', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('更新失败: ' + e.message, 'error');
                     }
                 },
 

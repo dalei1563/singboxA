@@ -47,6 +47,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/api/config", r.corsMiddleware(r.handlers.HandleConfig))
 	r.mux.HandleFunc("/api/rules", r.corsMiddleware(r.handlers.HandleRules))
 	r.mux.HandleFunc("/api/rules/mode", r.corsMiddleware(r.handlers.HandleProxyMode))
+	r.mux.HandleFunc("/api/rules/refresh", r.corsMiddleware(r.handlers.RefreshRules))
 
 	r.mux.HandleFunc("/api/logs", r.corsMiddleware(r.handlers.GetLogs))
 	r.mux.HandleFunc("/api/logs/stream", r.handlers.GetLogsSSE) // SSE endpoint

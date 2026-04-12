@@ -84,13 +84,15 @@ type Inbound struct {
 	Type                      string   `json:"type"`
 	Tag                       string   `json:"tag,omitempty"`
 	InterfaceName             string   `json:"interface_name,omitempty"`
-	Addresses                 []string `json:"addresses,omitempty"`
+	Address                  []string `json:"address,omitempty"`
 	Listen                    string   `json:"listen,omitempty"`
 	ListenPort                int      `json:"listen_port,omitempty"`
 	Sniff                     bool     `json:"sniff,omitempty"`
 	SniffOverrideDestination  bool     `json:"sniff_override_destination,omitempty"`
 	DomainStrategy            string   `json:"domain_strategy,omitempty"`
-	Stack                     string   `json:"stack,omitempty"` // 保留但仅用于 inbound 内部
+	Stack                     string   `json:"stack,omitempty"`       // 保留但仅用于 inbound 内部
+	AutoRoute                 bool     `json:"auto_route,omitempty"`  // 自动路由
+	StrictRoute               bool     `json:"strict_route,omitempty"` // 严格路由
 }
 
 type Outbound struct {
@@ -389,13 +391,17 @@ func (g *ConfigGenerator) generateInbounds(cfg config.Config) []Inbound {
 
 	// TUN 入站（仅在启用时添加）
 	if cfg.Proxy.TUNEnabled {
-		inbounds = append(inbounds, Inbound{
+		inbound := Inbound{
 			Type:          "tun",
 			Tag:           "tun-in",
 			InterfaceName: "tun0",
-			Addresses:     []string{cfg.Proxy.TUNAddress},
-			Stack:         cfg.Proxy.TUNStack,
-		})
+			Stack:         "system",
+			AutoRoute:     cfg.Proxy.AutoRoute,
+			StrictRoute:   cfg.Proxy.StrictRoute,
+		}
+		// System 模式需要 address 字段
+		inbound.Address = []string{cfg.Proxy.TUNAddress}
+		inbounds = append(inbounds, inbound)
 	}
 
 	// 添加 SOCKS5 入站（如果配置了端口）
@@ -657,6 +663,11 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 			DownloadDetour: "direct",
 			UpdateInterval: "1d",
 		},
+	}
+
+	// Global 模式：清除路由规则（但保留规则集供 DNS 使用），所有流量走 route.Final
+	if state.ProxyMode == "global" {
+		route.Rules = []RouteRule{}
 	}
 
 	return route

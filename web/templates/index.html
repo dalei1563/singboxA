@@ -227,14 +227,24 @@
             <div x-show="currentTab === 'nodes'" x-cloak class="p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold">节点管理</h2>
-                    <button @click="refreshSubscriptions()"
-                            :disabled="loading"
-                            class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
-                        <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                        </svg>
-                        刷新节点
-                    </button>
+                    <div class="flex items-center gap-3">
+                        <button @click="testAllNodes()"
+                                :disabled="loading || testing"
+                                class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-white">
+                            <svg class="w-4 h-4" :class="testing ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                            一键测速
+                        </button>
+                        <button @click="refreshSubscriptions()"
+                                :disabled="loading"
+                                class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
+                            <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            刷新节点
+                        </button>
+                    </div>
                 </div>
 
                 <div class="bg-white rounded-lg border border-light-border overflow-hidden">
@@ -649,15 +659,6 @@
                                     <input type="text" x-model="appConfig.proxy.tun_address"
                                            class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
                                 </div>
-                                <div>
-                                    <label class="block text-sm text-light-muted mb-2">TUN 栈</label>
-                                    <select x-model="appConfig.proxy.tun_stack"
-                                            class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                        <option value="system">System</option>
-                                        <option value="gvisor">gVisor</option>
-                                        <option value="mixed">Mixed</option>
-                                    </select>
-                                </div>
                                 <div class="flex items-center gap-3">
                                     <input type="checkbox" x-model="appConfig.proxy.auto_route" id="auto_route"
                                            class="w-4 h-4 rounded border-light-border bg-gray-50">
@@ -882,9 +883,9 @@
     <div class="fixed bottom-4 right-4 z-50 space-y-2">
         <template x-for="(toast, index) in toasts" :key="index">
             <div :class="toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-green-600' : 'bg-blue-600'"
-                 class="px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-slide-in">
-                <span x-text="toast.message"></span>
-                <button @click="toasts.splice(index, 1)" class="opacity-70 hover:opacity-100">
+                 class="px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-slide-in text-white">
+                <span x-text="toast.message" class="text-white"></span>
+                <button @click="toasts.splice(index, 1)" class="opacity-70 hover:opacity-100 text-white">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
@@ -898,6 +899,7 @@
             return {
                 currentTab: 'dashboard',
                 loading: false,
+                testing: false,
                 status: {
                     state: 'stopped',
                     node_count: 0,
@@ -1268,14 +1270,17 @@
                     }
                 },
 
-                async testNodeByName(nodeName) {
-                    // Debug: show toast immediately when function is called
-                    this.showToast('开始测速: ' + nodeName, 'info');
+                async testNodeByName(nodeName, silent = false) {
+                    if (!silent) {
+                        this.showToast('开始测速: ' + nodeName, 'info');
+                    }
 
                     // Find the actual node in the array for reactivity
                     const nodeIndex = this.nodes.findIndex(n => n.name === nodeName);
                     if (nodeIndex === -1) {
-                        this.showToast('未找到节点', 'error');
+                        if (!silent) {
+                            this.showToast('未找到节点', 'error');
+                        }
                         return;
                     }
 
@@ -1286,16 +1291,43 @@
                         const data = await res.json();
                         if (data.success) {
                             this.nodes[nodeIndex].latency = data.data.latency;
-                            this.showToast('延迟: ' + data.data.latency + 'ms', 'success');
+                            if (!silent) {
+                                this.showToast('延迟: ' + data.data.latency + 'ms', 'success');
+                            }
                         } else {
                             this.nodes[nodeIndex].latency = -1;
-                            this.showToast('测速失败', 'error');
+                            if (!silent) {
+                                this.showToast('测速失败', 'error');
+                            }
                         }
                     } catch (e) {
                         this.nodes[nodeIndex].latency = -1;
-                        this.showToast('测速失败: ' + e.message, 'error');
+                        if (!silent) {
+                            this.showToast('测速失败: ' + e.message, 'error');
+                        }
                     }
                     this.nodes[nodeIndex].testing = false;
+                },
+
+                async testAllNodes() {
+                    if (this.nodes.length === 0) {
+                        this.showToast('没有可测速的节点', 'error');
+                        return;
+                    }
+
+                    this.showToast('开始测速全部节点...', 'info');
+                    const batchSize = 3;
+                    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+                    for (let i = 0; i < this.nodes.length; i += batchSize) {
+                        const batch = this.nodes.slice(i, i + batchSize);
+                        await Promise.all(batch.map(node => this.testNodeByName(node.name, true)));
+                        if (i + batchSize < this.nodes.length) {
+                            await delay(500);
+                        }
+                    }
+
+                    this.showToast('测速完成', 'success');
                 },
 
                 async setProxyMode(mode) {

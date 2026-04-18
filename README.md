@@ -50,7 +50,7 @@ sudo ./scripts/install.sh install
 
 ```bash
 # 安装
-sudo dpkg -i singboxa_1.0.0_amd64.deb
+sudo dpkg -i singboxa_1.0.1_amd64.deb
 
 # 启动服务
 sudo systemctl enable --now singboxA

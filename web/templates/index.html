@@ -126,7 +126,11 @@
                         <div class="flex items-center justify-between">
                             <div>
                                 <p class="text-light-muted text-sm">当前节点</p>
-                                <p class="text-xl font-bold truncate" x-text="status.selected_node || '未选择'"></p>
+                                <p class="text-xl font-bold truncate" x-text="getSelectedNodeText()"></p>
+                                <p x-show="status.selected_mode === 'auto' && status.effective_node"
+                                   class="text-xs text-light-muted mt-1 truncate">
+                                    当前命中: <span x-text="status.effective_node"></span>
+                                </p>
                             </div>
                             <div class="bg-orange-500/20 text-orange-400 p-3 rounded-lg">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -236,14 +240,6 @@
                             </svg>
                             一键测速
                         </button>
-                        <button @click="refreshSubscriptions()"
-                                :disabled="loading"
-                                class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
-                            <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                            </svg>
-                            刷新节点
-                        </button>
                     </div>
                 </div>
 
@@ -252,15 +248,27 @@
                         <table class="w-full">
                             <thead class="bg-gray-100">
                                 <tr>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">节点名称</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold">
+                                        <button @click="toggleNodeSort('name')"
+                                                class="inline-flex items-center gap-1 hover:text-orange-500 transition-colors">
+                                            <span>节点名称</span>
+                                            <span x-text="getNodeSortIndicator('name')" class="text-xs text-light-muted"></span>
+                                        </button>
+                                    </th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold">类型</th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold">服务器</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">延迟</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold">
+                                        <button @click="toggleNodeSort('latency')"
+                                                class="inline-flex items-center gap-1 hover:text-orange-500 transition-colors">
+                                            <span>延迟</span>
+                                            <span x-text="getNodeSortIndicator('latency')" class="text-xs text-light-muted"></span>
+                                        </button>
+                                    </th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold">操作</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-light-border">
-                                <template x-for="node in nodes" :key="node.name">
+                                <template x-for="node in sortedNodes" :key="node.name">
                                     <tr :class="node.selected ? 'bg-row-selected/30' : 'hover:bg-gray-100/50'" class="transition-colors">
                                         <td class="px-4 py-3">
                                             <div class="flex items-center gap-2">
@@ -269,29 +277,39 @@
                                                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
                                                     </svg>
                                                 </span>
-                                                <span x-text="node.name" class="truncate max-w-xs"></span>
+                                                <span x-text="node.name === 'auto' ? '自动选择' : node.name" class="truncate max-w-xs"></span>
                                             </div>
+                                            <p x-show="node.virtual && node.effective_node"
+                                               class="text-xs text-light-muted mt-1">
+                                                当前命中: <span x-text="node.effective_node"></span>
+                                            </p>
                                         </td>
                                         <td class="px-4 py-3">
                                             <span x-text="node.type" class="px-2 py-1 bg-gray-100 rounded text-sm"></span>
                                         </td>
                                         <td class="px-4 py-3 text-light-muted">
-                                            <span x-text="node.server + ':' + node.port" class="truncate max-w-xs block"></span>
+                                            <span x-show="!node.virtual" x-text="node.server + ':' + node.port" class="truncate max-w-xs block"></span>
+                                            <span x-show="node.virtual" class="truncate max-w-xs block">根据测速结果自动选择最优节点</span>
                                         </td>
                                         <td class="px-4 py-3">
-                                            <span x-show="node.latency > 0" x-text="node.latency + 'ms'"
+                                            <span x-show="!node.virtual && node.latency > 0" x-text="node.latency + 'ms'"
                                                   :class="node.latency < 200 ? 'text-green-400' : node.latency < 500 ? 'text-yellow-400' : 'text-red-400'"></span>
-                                            <span x-show="node.latency === -1" class="text-red-400">超时</span>
-                                            <span x-show="!node.latency && node.latency !== -1" class="text-light-muted">-</span>
+                                            <span x-show="!node.virtual && node.latency === -1" class="text-red-400">超时</span>
+                                            <span x-show="node.virtual && node.latency > 0" x-text="node.latency + 'ms'"
+                                                  :class="node.latency < 200 ? 'text-green-400' : node.latency < 500 ? 'text-yellow-400' : 'text-red-400'"></span>
+                                            <span x-show="node.virtual && node.latency === -1" class="text-red-400">超时</span>
+                                            <span x-show="node.virtual && (!node.latency && node.latency !== -1)" class="text-light-muted">-</span>
+                                            <span x-show="!node.virtual && !node.latency && node.latency !== -1" class="text-light-muted">-</span>
                                         </td>
                                         <td class="px-4 py-3">
                                             <div class="flex gap-2">
                                                 <button @click="selectNode(node.name)"
                                                         :disabled="node.selected"
                                                         class="px-3 py-1 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors text-orange-500">
-                                                    选择
+                                                    <span x-text="node.virtual ? '启用' : '选择'"></span>
                                                 </button>
                                                 <button @click="testNodeByName(node.name)"
+                                                        x-show="!node.virtual"
                                                         :disabled="node.testing"
                                                         class="px-3 py-1 bg-white border-2 border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors flex items-center gap-1 text-gray-600">
                                                     <span x-show="node.testing" class="spinner"></span>
@@ -332,11 +350,23 @@
                                 <div class="flex-1">
                                     <h3 class="font-semibold" x-text="sub.name"></h3>
                                     <p class="text-sm text-light-muted truncate" x-text="sub.url"></p>
+                                    <p class="text-xs mt-1" :class="sub.auto_update ? 'text-green-600' : 'text-light-muted'">
+                                        自动更新: <span x-text="sub.auto_update ? '开启' : '关闭'"></span>
+                                    </p>
+                                    <p class="text-xs text-light-muted mt-1">
+                                        更新间隔: <span x-text="sub.auto_update ? (sub.update_interval || 60) : '-'"></span><span x-show="sub.auto_update"> 分钟</span>
+                                    </p>
                                     <p class="text-xs text-light-muted mt-1" x-show="sub.updated_at">
                                         上次更新: <span x-text="formatDate(sub.updated_at)"></span>
                                     </p>
                                 </div>
                                 <div class="flex gap-2 ml-4">
+                                    <button @click="openEditSubscription(sub)"
+                                            class="p-2 hover:bg-gray-100 rounded transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.586 2.586a2 2 0 112.828 2.828L12 14.828l-4 1 1-4 9.586-9.414z"/>
+                                        </svg>
+                                    </button>
                                     <button @click="refreshSubscription(sub)"
                                             class="p-2 hover:bg-gray-100 rounded transition-colors">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -382,6 +412,19 @@
                                        placeholder="https://..."
                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
                             </div>
+                            <div>
+                                <label class="flex items-center gap-3 text-sm text-light-muted mb-1">
+                                    <input type="checkbox" x-model="newSubscription.auto_update"
+                                           class="w-4 h-4 rounded border-light-border bg-gray-50">
+                                    自动更新
+                                </label>
+                            </div>
+                            <div x-show="newSubscription.auto_update">
+                                <label class="block text-sm text-light-muted mb-1">更新间隔 (分钟)</label>
+                                <input type="number" x-model.number="newSubscription.update_interval"
+                                       min="5" placeholder="60"
+                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
+                            </div>
                         </div>
                         <div class="flex justify-end gap-3 mt-6">
                             <button @click="showAddSubscription = false"
@@ -392,6 +435,51 @@
                                     :disabled="!newSubscription.url"
                                     class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg transition-colors">
                                 添加
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit subscription modal -->
+                <div x-show="showEditSubscription" x-cloak
+                     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+                     @click.self="showEditSubscription = false">
+                    <div class="bg-white rounded-lg p-6 w-full max-w-md border border-light-border">
+                        <h3 class="text-lg font-semibold mb-4">修改订阅</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm text-light-muted mb-1">订阅名称</label>
+                                <input type="text" x-model="editingSubscription.name"
+                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-light-muted mb-1">订阅地址</label>
+                                <input type="url" x-model="editingSubscription.url"
+                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="flex items-center gap-3 text-sm text-light-muted mb-1">
+                                    <input type="checkbox" x-model="editingSubscription.auto_update"
+                                           class="w-4 h-4 rounded border-light-border bg-gray-50">
+                                    自动更新
+                                </label>
+                            </div>
+                            <div x-show="editingSubscription.auto_update">
+                                <label class="block text-sm text-light-muted mb-1">更新间隔 (分钟)</label>
+                                <input type="number" x-model.number="editingSubscription.update_interval"
+                                       min="5"
+                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
+                            </div>
+                        </div>
+                        <div class="flex justify-end gap-3 mt-6">
+                            <button @click="showEditSubscription = false"
+                                    class="px-4 py-2 bg-gray-100 hover:bg-gray-200/30 rounded-lg transition-colors">
+                                取消
+                            </button>
+                            <button @click="updateSubscription()"
+                                    :disabled="!editingSubscription.url"
+                                    class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg transition-colors">
+                                保存
                             </button>
                         </div>
                     </div>
@@ -621,7 +709,7 @@
             <div x-show="currentTab === 'settings'" x-cloak class="p-6">
                 <h2 class="text-2xl font-bold mb-6">系统设置</h2>
 
-                <template x-if="appConfig && appConfig.proxy && appConfig.dns && appConfig.subscription">
+                <template x-if="appConfig && appConfig.proxy && appConfig.dns">
                 <div class="space-y-6">
                     <!-- DNS Settings -->
                     <div class="bg-white rounded-lg p-6 border border-light-border">
@@ -708,20 +796,21 @@
                         </div>
                     </div>
 
-                    <!-- Subscription Settings -->
+                    <!-- Node Selection Settings -->
                     <div class="bg-white rounded-lg p-6 border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">订阅设置</h3>
+                        <h3 class="text-lg font-semibold mb-4">节点设置</h3>
                         <div class="space-y-4">
-                            <div class="flex items-center gap-3">
-                                <input type="checkbox" x-model="appConfig.subscription.auto_update" id="auto_update"
-                                       class="w-4 h-4 rounded border-light-border bg-gray-50">
-                                <label for="auto_update" class="text-sm">自动更新订阅</label>
-                            </div>
-                            <div x-show="appConfig.subscription.auto_update">
-                                <label class="block text-sm text-light-muted mb-2">更新间隔 (分钟)</label>
-                                <input type="number" x-model.number="appConfig.subscription.update_interval"
-                                       min="5" max="1440"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
+                            <div>
+                                <label class="block text-sm text-light-muted mb-2">节点选择偏好</label>
+                                <select x-model="appConfig.node_selection_preference"
+                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
+                                    <option value="auto">自动</option>
+                                    <option value="us">美国</option>
+                                    <option value="sg">新加坡</option>
+                                    <option value="tw">台湾</option>
+                                    <option value="hk">香港</option>
+                                </select>
+                                <p class="text-xs text-light-muted mt-1">自动模式和失效补选时会按这里的偏好匹配节点。</p>
                             </div>
                         </div>
                     </div>
@@ -917,7 +1006,10 @@
                 status: {
                     state: 'stopped',
                     node_count: 0,
-                    selected_node: '',
+                    selected_node: 'auto',
+                    selected_mode: 'auto',
+                    effective_node: '',
+                    node_selection_preference: 'auto',
                     proxy_mode: 'rule'
                 },
                 nodes: [],
@@ -939,17 +1031,23 @@
                 connStats: { download: 0, upload: 0 },
                 connInterval: null,
                 showAddSubscription: false,
+                showEditSubscription: false,
                 showAddRule: false,
                 showAddBypass: false,
-                newSubscription: { name: '', url: '' },
+                newSubscription: { name: '', url: '', auto_update: true, update_interval: 60 },
+                editingSubscription: { id: '', name: '', url: '', auto_update: true, update_interval: 60 },
                 newRule: { type: 'domain', value: '', outbound: 'proxy' },
                 newBypass: { address: '', comment: '' },
                 bypassInfo: { bypass_list: [], gateway: '', interface: '' },
                 bypassLoading: false,
                 eventSource: null,
                 clearingCache: false,
+                nodeSort: {
+                    field: null
+                },
 
                 async init() {
+                    this.loadNodeSort();
                     await this.fetchStatus();
                     await this.fetchNodes();
                     await this.fetchSubscriptions();
@@ -999,7 +1097,7 @@
                             this.nodes = (data.data || []).map(node => ({
                                 ...node,
                                 testing: false,
-                                latency: null
+                                latency: typeof node.latency === 'number' ? node.latency : null
                             }));
                         }
                     } catch (e) {
@@ -1053,6 +1151,9 @@
                         const data = await res.json();
                         if (data.success) {
                             this.appConfig = data.data;
+                            if (!this.newSubscription.update_interval) {
+                                this.newSubscription.update_interval = this.appConfig?.subscription?.update_interval || 60;
+                            }
                         }
                     } catch (e) {
                         console.error('Failed to fetch config:', e);
@@ -1247,17 +1348,28 @@
                 },
 
                 async addSubscription() {
+                    const payload = {
+                        ...this.newSubscription,
+                        update_interval: this.newSubscription.auto_update
+                            ? (this.newSubscription.update_interval || this.appConfig?.subscription?.update_interval || 60)
+                            : 0
+                    };
                     try {
                         const res = await fetch('/api/subscriptions', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.newSubscription)
+                            body: JSON.stringify(payload)
                         });
                         const data = await res.json();
                         if (data.success) {
                             this.showToast('订阅已添加', 'success');
                             this.showAddSubscription = false;
-                            this.newSubscription = { name: '', url: '' };
+                            this.newSubscription = {
+                                name: '',
+                                url: '',
+                                auto_update: true,
+                                update_interval: this.appConfig?.subscription?.update_interval || 60
+                            };
                             await this.fetchSubscriptions();
                             setTimeout(() => this.fetchNodes(), 2000);
                         } else {
@@ -1265,6 +1377,43 @@
                         }
                     } catch (e) {
                         this.showToast('添加失败: ' + e.message, 'error');
+                    }
+                },
+
+                openEditSubscription(sub) {
+                    this.editingSubscription = {
+                        id: sub.id,
+                        name: sub.name,
+                        url: sub.url,
+                        auto_update: sub.auto_update !== false,
+                        update_interval: sub.update_interval || this.appConfig?.subscription?.update_interval || 60
+                    };
+                    this.showEditSubscription = true;
+                },
+
+                async updateSubscription() {
+                    const payload = {
+                        ...this.editingSubscription,
+                        update_interval: this.editingSubscription.auto_update
+                            ? (this.editingSubscription.update_interval || this.appConfig?.subscription?.update_interval || 60)
+                            : 0
+                    };
+                    try {
+                        const res = await fetch(`/api/subscriptions/${this.editingSubscription.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('订阅已更新', 'success');
+                            this.showEditSubscription = false;
+                            await this.fetchSubscriptions();
+                        } else {
+                            this.showToast(data.error || '更新失败', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('更新失败: ' + e.message, 'error');
                     }
                 },
 
@@ -1302,6 +1451,10 @@
                 },
 
                 async testNodeByName(nodeName, silent = false) {
+                    if (nodeName === 'auto') {
+                        return;
+                    }
+
                     if (!silent) {
                         this.showToast('开始测速: ' + nodeName, 'info');
                     }
@@ -1323,6 +1476,10 @@
                         if (data.success) {
                             this.nodes[nodeIndex].latency = data.data.latency;
                             if (!silent) {
+                                await this.fetchStatus();
+                                await this.fetchNodes();
+                            }
+                            if (!silent) {
                                 this.showToast('延迟: ' + data.data.latency + 'ms', 'success');
                             }
                         } else {
@@ -1341,22 +1498,29 @@
                 },
 
                 async testAllNodes() {
-                    if (this.nodes.length === 0) {
+                    const realNodes = this.nodes.filter(node => !node.virtual);
+                    if (realNodes.length === 0) {
                         this.showToast('没有可测速的节点', 'error');
                         return;
                     }
 
                     this.showToast('开始测速全部节点...', 'info');
-                    const batchSize = 3;
-                    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+                    this.testing = true;
 
-                    for (let i = 0; i < this.nodes.length; i += batchSize) {
-                        const batch = this.nodes.slice(i, i + batchSize);
-                        await Promise.all(batch.map(node => this.testNodeByName(node.name, true)));
-                        if (i + batchSize < this.nodes.length) {
-                            await delay(500);
+                    const workerCount = Math.min(5, realNodes.length);
+                    let nextIndex = 0;
+
+                    const runWorker = async () => {
+                        while (nextIndex < realNodes.length) {
+                            const currentIndex = nextIndex++;
+                            await this.testNodeByName(realNodes[currentIndex].name, true);
                         }
-                    }
+                    };
+
+                    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+                    this.testing = false;
+                    await this.fetchStatus();
+                    await this.fetchNodes();
 
                     this.showToast('测速完成', 'success');
                 },
@@ -1504,6 +1668,9 @@
                         const data = await res.json();
                         if (data.success) {
                             this.showToast('设置已保存', 'success');
+                            await this.fetchConfig();
+                            await this.fetchStatus();
+                            await this.fetchNodes();
                         } else {
                             this.showToast(data.error || '保存失败', 'error');
                         }
@@ -1584,6 +1751,47 @@
                     return modes[mode] || mode;
                 },
 
+                toggleNodeSort(field) {
+                    if (this.nodeSort.field === field) {
+                        this.nodeSort.field = null;
+                    } else {
+                        this.nodeSort.field = field;
+                    }
+                    this.saveNodeSort();
+                },
+
+                getNodeSortIndicator(field) {
+                    return this.nodeSort.field === field ? '↑' : '';
+                },
+
+                loadNodeSort() {
+                    try {
+                        const saved = localStorage.getItem('singboxA.nodeSort');
+                        if (!saved) return;
+                        const parsed = JSON.parse(saved);
+                        if (parsed && (parsed.field === 'name' || parsed.field === 'latency' || parsed.field === null)) {
+                            this.nodeSort = { field: parsed.field };
+                        }
+                    } catch (e) {
+                        console.error('Failed to load node sort:', e);
+                    }
+                },
+
+                saveNodeSort() {
+                    try {
+                        localStorage.setItem('singboxA.nodeSort', JSON.stringify(this.nodeSort));
+                    } catch (e) {
+                        console.error('Failed to save node sort:', e);
+                    }
+                },
+
+                getSelectedNodeText() {
+                    if (this.status.selected_mode === 'auto') {
+                        return '自动选择';
+                    }
+                    return this.status.selected_node || '未选择';
+                },
+
                 formatDate(dateStr) {
                     if (!dateStr) return '';
                     const date = new Date(dateStr);
@@ -1636,6 +1844,34 @@
                     }
 
                     return filtered;
+                },
+
+                get sortedNodes() {
+                    const autoNode = this.nodes.find(node => node.virtual);
+                    const realNodes = this.nodes.filter(node => !node.virtual);
+
+                    if (this.nodeSort.field === 'name') {
+                        realNodes.sort((a, b) => {
+                            const nameA = a.name === 'auto' ? '自动选择' : a.name;
+                            const nameB = b.name === 'auto' ? '自动选择' : b.name;
+                            return nameA.localeCompare(nameB, 'zh-CN');
+                        });
+                    } else if (this.nodeSort.field === 'latency') {
+                        realNodes.sort((a, b) => {
+                            const latencyA = typeof a.latency === 'number' && a.latency >= 0
+                                ? a.latency
+                                : Number.POSITIVE_INFINITY;
+                            const latencyB = typeof b.latency === 'number' && b.latency >= 0
+                                ? b.latency
+                                : Number.POSITIVE_INFINITY;
+                            if (latencyA !== latencyB) {
+                                return latencyA - latencyB;
+                            }
+                            return a.name.localeCompare(b.name, 'zh-CN');
+                        });
+                    }
+
+                    return autoNode ? [autoNode, ...realNodes] : realNodes;
                 },
 
                 highlightLog(message) {

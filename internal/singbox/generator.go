@@ -81,18 +81,18 @@ type DNSRule struct {
 
 // Inbound for sing-box 1.13+ (legacy fields removed)
 type Inbound struct {
-	Type                      string   `json:"type"`
-	Tag                       string   `json:"tag,omitempty"`
-	InterfaceName             string   `json:"interface_name,omitempty"`
+	Type                     string   `json:"type"`
+	Tag                      string   `json:"tag,omitempty"`
+	InterfaceName            string   `json:"interface_name,omitempty"`
 	Address                  []string `json:"address,omitempty"`
-	Listen                    string   `json:"listen,omitempty"`
-	ListenPort                int      `json:"listen_port,omitempty"`
-	Sniff                     bool     `json:"sniff,omitempty"`
-	SniffOverrideDestination  bool     `json:"sniff_override_destination,omitempty"`
-	DomainStrategy            string   `json:"domain_strategy,omitempty"`
-	Stack                     string   `json:"stack,omitempty"`       // 保留但仅用于 inbound 内部
-	AutoRoute                 bool     `json:"auto_route,omitempty"`  // 自动路由
-	StrictRoute               bool     `json:"strict_route,omitempty"` // 严格路由
+	Listen                   string   `json:"listen,omitempty"`
+	ListenPort               int      `json:"listen_port,omitempty"`
+	Sniff                    bool     `json:"sniff,omitempty"`
+	SniffOverrideDestination bool     `json:"sniff_override_destination,omitempty"`
+	DomainStrategy           string   `json:"domain_strategy,omitempty"`
+	Stack                    string   `json:"stack,omitempty"`        // 保留但仅用于 inbound 内部
+	AutoRoute                bool     `json:"auto_route,omitempty"`   // 自动路由
+	StrictRoute              bool     `json:"strict_route,omitempty"` // 严格路由
 }
 
 type Outbound struct {
@@ -126,11 +126,11 @@ type Outbound struct {
 }
 
 type TLSConfig struct {
-	Enabled    bool          `json:"enabled,omitempty"`
-	ServerName string        `json:"server_name,omitempty"`
-	Insecure   bool          `json:"insecure,omitempty"`
-	ALPN       []string      `json:"alpn,omitempty"`
-	UTLS       *UTLSConfig   `json:"utls,omitempty"`
+	Enabled    bool           `json:"enabled,omitempty"`
+	ServerName string         `json:"server_name,omitempty"`
+	Insecure   bool           `json:"insecure,omitempty"`
+	ALPN       []string       `json:"alpn,omitempty"`
+	UTLS       *UTLSConfig    `json:"utls,omitempty"`
 	Reality    *RealityConfig `json:"reality,omitempty"`
 }
 
@@ -154,11 +154,11 @@ type TransportConfig struct {
 }
 
 type RouteConfig struct {
-	Rules                  []RouteRule `json:"rules,omitempty"`
-	RuleSet                []RuleSet   `json:"rule_set,omitempty"`
-	Final                  string      `json:"final,omitempty"`
-	AutoDetectInterface    bool        `json:"auto_detect_interface,omitempty"`
-	DefaultDomainResolver  string      `json:"default_domain_resolver,omitempty"`
+	Rules                 []RouteRule `json:"rules,omitempty"`
+	RuleSet               []RuleSet   `json:"rule_set,omitempty"`
+	Final                 string      `json:"final,omitempty"`
+	AutoDetectInterface   bool        `json:"auto_detect_interface,omitempty"`
+	DefaultDomainResolver string      `json:"default_domain_resolver,omitempty"`
 }
 
 // RuleSet for remote geoip/geosite rules
@@ -239,7 +239,7 @@ func (g *ConfigGenerator) Generate(nodes []Outbound, cfg config.Config, state co
 		CacheFile: &CacheFile{
 			Enabled:     true,
 			Path:        filepath.Join(g.dataDir, "singbox", "cache.db"),
-			StoreFakeIP: true, // 持久化 FakeIP 映射
+			StoreFakeIP: true,  // 持久化 FakeIP 映射
 			StoreRDRC:   false, // 禁用 DNS 规则检查结果缓存，避免初始化超时
 		},
 	}
@@ -250,11 +250,11 @@ func (g *ConfigGenerator) Generate(nodes []Outbound, cfg config.Config, state co
 func (g *ConfigGenerator) generateDNS(cfg config.Config) *DNSConfig {
 	dns := &DNSConfig{
 		Final:          "proxy-dns",
-		Strategy:       "prefer_ipv4",  // 优先 IPv4，兼容性更好
-		Independent:    false,          // 共享缓存，避免同域名重复缓存
-		CacheCapacity:  50000,          // 缓存 50000 条记录
-		DisableExpire:  false,          // 允许缓存过期，保持 DNS 记录新鲜
-		ReverseMapping: true,           // 启用反向映射，日志显示域名而非 IP
+		Strategy:       "prefer_ipv4", // 优先 IPv4，兼容性更好
+		Independent:    false,         // 共享缓存，避免同域名重复缓存
+		CacheCapacity:  50000,         // 缓存 50000 条记录
+		DisableExpire:  false,         // 允许缓存过期，保持 DNS 记录新鲜
+		ReverseMapping: true,          // 启用反向映射，日志显示域名而非 IP
 	}
 
 	// Get domestic DNS tag
@@ -357,10 +357,10 @@ func (g *ConfigGenerator) generateDNS(cfg config.Config) *DNSConfig {
 		// Using dnsmasq-china-list which is more complete than geosite-cn
 		{
 			RuleSet: []string{
-				"geosite-cn",              // 基础中国域名
-				"china-domains",           // dnsmasq-china-list 加速域名
-				"apple-cn",                // Apple 中国服务
-				"google-cn",               // Google 中国服务
+				"geosite-cn",    // 基础中国域名
+				"china-domains", // dnsmasq-china-list 加速域名
+				"apple-cn",      // Apple 中国服务
+				"google-cn",     // Google 中国服务
 			},
 			Server: domesticTag,
 		},
@@ -407,20 +407,20 @@ func (g *ConfigGenerator) generateInbounds(cfg config.Config) []Inbound {
 	// 添加 SOCKS5 入站（如果配置了端口）
 	if cfg.Proxy.SOCK5Port > 0 {
 		inbounds = append(inbounds, Inbound{
-			Type:        "socks",
-			Tag:         "socks5-in",
-			Listen:      "0.0.0.0",
-			ListenPort:  cfg.Proxy.SOCK5Port,
+			Type:       "socks",
+			Tag:        "socks5-in",
+			Listen:     "0.0.0.0",
+			ListenPort: cfg.Proxy.SOCK5Port,
 		})
 	}
 
 	// 添加 HTTP 代理入站
 	if cfg.Proxy.HTTPProxyPort > 0 {
 		inbounds = append(inbounds, Inbound{
-			Type:        "http",
-			Tag:         "http-in",
-			Listen:      "0.0.0.0",
-			ListenPort:  cfg.Proxy.HTTPProxyPort,
+			Type:       "http",
+			Tag:        "http-in",
+			Listen:     "0.0.0.0",
+			ListenPort: cfg.Proxy.HTTPProxyPort,
 		})
 	}
 
@@ -444,7 +444,7 @@ func (g *ConfigGenerator) generateOutbounds(nodes []Outbound, state config.AppSt
 		Default:                   "auto",
 		InterruptExistConnections: true,
 	}
-	if state.SelectedNode != "" {
+	if state.SelectedNode != "" && state.SelectedNode != "auto" {
 		selector.Default = state.SelectedNode
 	}
 	outbounds = append(outbounds, selector)
@@ -483,9 +483,9 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 	}
 
 	route := &RouteConfig{
-		Final:                  "proxy",
-		AutoDetectInterface:    true,
-		DefaultDomainResolver:  domesticDNSTag,
+		Final:                 "proxy",
+		AutoDetectInterface:   true,
+		DefaultDomainResolver: domesticDNSTag,
 	}
 
 	// Handle different proxy modes

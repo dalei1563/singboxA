@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"singboxA/internal/bypass"
 	"singboxA/internal/config"
+	"singboxA/internal/nodeselector"
 	"singboxA/internal/rules"
 	"singboxA/internal/singbox"
 	"singboxA/internal/subscription"
@@ -26,6 +29,8 @@ type Handlers struct {
 	generator  *singbox.ConfigGenerator
 	rulesMgr   *rules.RuleManager
 	bypassMgr  *bypass.Manager
+	testMu     sync.Mutex
+	testing    bool
 }
 
 func NewHandlers() *Handlers {
@@ -44,6 +49,11 @@ type Response struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
+}
+
+type ConfigPayload struct {
+	config.Config
+	NodeSelectionPreference string `json:"node_selection_preference"`
 }
 
 func (h *Handlers) sendJSON(w http.ResponseWriter, data interface{}) {
@@ -71,16 +81,20 @@ func (h *Handlers) GetStatus(w http.ResponseWriter, r *http.Request) {
 	exists, version := h.processMgr.CheckBinary()
 	nodes := h.updater.GetNodes()
 	state := h.cfgMgr.GetState()
+	resolved := nodeselector.Resolve(nodes, state)
 
 	data := map[string]interface{}{
-		"state":         status.State,
-		"pid":           status.PID,
-		"binary_exists": exists,
-		"version":       strings.TrimSpace(version),
-		"node_count":    len(nodes),
-		"selected_node": state.SelectedNode,
-		"proxy_mode":    state.ProxyMode,
-		"last_update":   h.updater.GetLastUpdate(),
+		"state":                     status.State,
+		"pid":                       status.PID,
+		"binary_exists":             exists,
+		"version":                   strings.TrimSpace(version),
+		"node_count":                len(nodes),
+		"selected_node":             resolved.LogicalNode,
+		"selected_mode":             resolved.SelectedMode,
+		"effective_node":            resolved.EffectiveNode,
+		"node_selection_preference": resolved.Preference,
+		"proxy_mode":                state.ProxyMode,
+		"last_update":               h.updater.GetLastUpdate(),
 	}
 
 	h.sendJSON(w, data)
@@ -166,6 +180,10 @@ func (h *Handlers) HandleSubscriptions(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusBadRequest, "URL is required")
 			return
 		}
+		if sub.UpdateInterval < 0 {
+			h.sendError(w, http.StatusBadRequest, "Update interval must be greater than or equal to 0")
+			return
+		}
 
 		sub.ID = subscription.GenerateID()
 		if sub.Name == "" {
@@ -178,7 +196,17 @@ func (h *Handlers) HandleSubscriptions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Fetch subscription in background
-		go h.updater.RefreshSubscription(sub)
+		go func() {
+			if err := h.updater.RefreshSubscription(sub); err != nil {
+				log.Printf("Failed to refresh subscription %s: %v", sub.Name, err)
+				return
+			}
+			if _, err := h.normalizeSelectionState(); err != nil {
+				log.Printf("Failed to normalize node selection after adding subscription: %v", err)
+				return
+			}
+			h.startBackgroundNodeTesting()
+		}()
 
 		h.sendJSON(w, sub)
 	default:
@@ -201,6 +229,14 @@ func (h *Handlers) HandleSubscriptionByID(w http.ResponseWriter, r *http.Request
 			return
 		}
 		sub.ID = id
+		if sub.URL == "" {
+			h.sendError(w, http.StatusBadRequest, "URL is required")
+			return
+		}
+		if sub.UpdateInterval < 0 {
+			h.sendError(w, http.StatusBadRequest, "Update interval must be greater than or equal to 0")
+			return
+		}
 
 		if err := h.cfgMgr.UpdateSubscription(sub); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
@@ -218,6 +254,21 @@ func (h *Handlers) HandleSubscriptionByID(w http.ResponseWriter, r *http.Request
 			// Log warning but don't fail - subscription is already deleted
 			log.Printf("Warning: failed to delete subscription cache: %v", err)
 		}
+		selectionChanged, err := h.normalizeSelectionState()
+		if err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if selectionChanged && h.processMgr.GetState() == singbox.StateRunning {
+			if err := h.generateConfig(); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := h.processMgr.Restart(); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 
 		h.sendJSON(w, map[string]string{"status": "deleted"})
 	default:
@@ -231,23 +282,54 @@ func (h *Handlers) RefreshSubscriptions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	beforeNodes := h.updater.GetNodes()
+	beforeState := h.cfgMgr.GetState()
+	beforeResolved := nodeselector.Resolve(beforeNodes, beforeState)
+
 	if err := h.updater.RefreshAll(); err != nil {
 		h.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	h.sendJSON(w, map[string]string{"status": "refreshed"})
+	afterNodes := h.updater.GetNodes()
+	selectionChanged, err := h.normalizeSelectionStateWithNodes(afterNodes)
+	if err != nil {
+		h.sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	afterState := h.cfgMgr.GetState()
+	afterResolved := nodeselector.Resolve(afterNodes, afterState)
+
+	if h.processMgr.GetState() == singbox.StateRunning && h.shouldRestartAfterSubscriptionRefresh(beforeNodes, afterNodes, beforeResolved, afterResolved, selectionChanged) {
+		if err := h.generateConfig(); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := h.processMgr.Restart(); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	h.startBackgroundNodeTesting()
+
+	h.sendJSON(w, map[string]string{
+		"status":         "refreshed",
+		"testing_status": "started",
+	})
 }
 
 // Node handlers
 
 type NodeInfo struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Server   string `json:"server"`
-	Port     int    `json:"port"`
-	Selected bool   `json:"selected"`
-	Latency  int    `json:"latency,omitempty"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	Server        string `json:"server"`
+	Port          int    `json:"port"`
+	Selected      bool   `json:"selected"`
+	Latency       int    `json:"latency,omitempty"`
+	EffectiveNode string `json:"effective_node,omitempty"`
+	Virtual       bool   `json:"virtual,omitempty"`
 }
 
 func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
@@ -258,16 +340,39 @@ func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
 
 	nodes := h.updater.GetNodes()
 	state := h.cfgMgr.GetState()
+	resolved := nodeselector.Resolve(nodes, state)
+	testResults := h.cfgMgr.GetNodeTestResults()
 
-	nodeInfos := make([]NodeInfo, 0, len(nodes))
+	nodeInfos := make([]NodeInfo, 0, len(nodes)+1)
+	autoNode := NodeInfo{
+		Name:          nodeselector.AutoNodeTag,
+		Type:          "auto",
+		Selected:      resolved.SelectedMode == "auto",
+		EffectiveNode: resolved.EffectiveNode,
+		Virtual:       true,
+	}
 	for _, node := range nodes {
-		nodeInfos = append(nodeInfos, NodeInfo{
+		if node.Tag != resolved.EffectiveNode {
+			continue
+		}
+		if latency, ok := testResults[nodeselector.NodeKey(node)]; ok {
+			autoNode.Latency = latency
+		}
+		break
+	}
+	nodeInfos = append(nodeInfos, autoNode)
+	for _, node := range nodes {
+		nodeInfo := NodeInfo{
 			Name:     node.Tag,
 			Type:     node.Type,
 			Server:   node.Server,
 			Port:     node.ServerPort,
-			Selected: node.Tag == state.SelectedNode,
-		})
+			Selected: resolved.SelectedMode == "manual" && node.Tag == resolved.LogicalNode,
+		}
+		if latency, ok := testResults[nodeselector.NodeKey(node)]; ok {
+			nodeInfo.Latency = latency
+		}
+		nodeInfos = append(nodeInfos, nodeInfo)
 	}
 
 	h.sendJSON(w, nodeInfos)
@@ -292,7 +397,15 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := h.cfgMgr.SetSelectedNode(nodeName); err != nil {
+		selectedNode := nodeName
+		if selectedNode != nodeselector.AutoNodeTag {
+			if !h.nodeExists(selectedNode) {
+				h.sendError(w, http.StatusNotFound, "Node not found")
+				return
+			}
+		}
+
+		if err := h.cfgMgr.SetSelectedNode(selectedNode); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -306,7 +419,13 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 			h.processMgr.Restart()
 		}
 
-		h.sendJSON(w, map[string]string{"selected": nodeName})
+		nodes := h.updater.GetNodes()
+		resolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
+		h.sendJSON(w, map[string]string{
+			"selected":       resolved.LogicalNode,
+			"selected_mode":  resolved.SelectedMode,
+			"effective_node": resolved.EffectiveNode,
+		})
 
 	case "test":
 		if r.Method != "POST" {
@@ -332,11 +451,17 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 		// Test latency
 		latency, err := h.testNodeLatency(targetNode.Server, targetNode.ServerPort)
 		if err != nil {
+			_ = h.cfgMgr.SetNodeTestResult(nodeselector.NodeKey(*targetNode), -1)
 			h.sendJSON(w, map[string]interface{}{
 				"node":    nodeName,
 				"latency": -1,
 				"error":   err.Error(),
 			})
+			return
+		}
+
+		if err := h.cfgMgr.SetNodeTestResult(nodeselector.NodeKey(*targetNode), latency); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -366,20 +491,45 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		cfg := h.cfgMgr.GetConfig()
-		h.sendJSON(w, cfg)
+		h.sendJSON(w, ConfigPayload{
+			Config:                  cfg,
+			NodeSelectionPreference: nodeselector.NormalizePreference(h.cfgMgr.GetNodeSelectionPreference()),
+		})
 	case "PUT":
-		var cfg config.Config
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		var payload ConfigPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			h.sendError(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
 
-		if err := h.cfgMgr.UpdateConfig(cfg); err != nil {
+		if err := h.cfgMgr.UpdateConfig(payload.Config); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if err := h.cfgMgr.SetNodeSelectionPreference(nodeselector.NormalizePreference(payload.NodeSelectionPreference)); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		selectionChanged, err := h.normalizeSelectionState()
+		if err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if selectionChanged && h.processMgr.GetState() == singbox.StateRunning {
+			if err := h.generateConfig(); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := h.processMgr.Restart(); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 
-		h.sendJSON(w, cfg)
+		h.sendJSON(w, ConfigPayload{
+			Config:                  payload.Config,
+			NodeSelectionPreference: nodeselector.NormalizePreference(payload.NodeSelectionPreference),
+		})
 	default:
 		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -396,10 +546,10 @@ func (h *Handlers) HandleRules(w http.ResponseWriter, r *http.Request) {
 		geoips := h.rulesMgr.GetAvailableGeoips()
 
 		h.sendJSON(w, map[string]interface{}{
-			"custom_rules":    rules,
-			"default_rules":   defaultRules,
-			"geosite_values":  geosites,
-			"geoip_values":    geoips,
+			"custom_rules":     rules,
+			"default_rules":    defaultRules,
+			"geosite_values":   geosites,
+			"geoip_values":     geoips,
 			"last_rule_update": h.rulesMgr.GetLastRuleUpdate(),
 		})
 	case "PUT":
@@ -465,7 +615,7 @@ func (h *Handlers) RefreshRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, map[string]interface{}{
-		"success":         true,
+		"success":          true,
 		"last_rule_update": h.rulesMgr.GetLastRuleUpdate(),
 	})
 }
@@ -711,6 +861,9 @@ func (h *Handlers) ClearCache(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) generateConfig() error {
 	nodes := h.updater.GetNodes()
+	if _, err := h.normalizeSelectionStateWithNodes(nodes); err != nil {
+		return err
+	}
 	cfg := h.cfgMgr.GetConfig()
 	state := h.cfgMgr.GetState()
 
@@ -720,6 +873,133 @@ func (h *Handlers) generateConfig() error {
 	}
 
 	return h.generator.SaveConfig(sbConfig, cfg.SingBox.ConfigPath)
+}
+
+func (h *Handlers) nodeExists(name string) bool {
+	nodes := h.updater.GetNodes()
+	for _, node := range nodes {
+		if node.Tag == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handlers) normalizeSelectionState() (bool, error) {
+	return h.normalizeSelectionStateWithNodes(h.updater.GetNodes())
+}
+
+func (h *Handlers) normalizeSelectionStateWithNodes(nodes []singbox.Outbound) (bool, error) {
+	state := h.cfgMgr.GetState()
+	resolved := nodeselector.Resolve(nodes, state)
+	changed := false
+
+	normalizedPreference := nodeselector.NormalizePreference(state.NodeSelectionPreference)
+	if normalizedPreference != state.NodeSelectionPreference {
+		if err := h.cfgMgr.SetNodeSelectionPreference(normalizedPreference); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+
+	if state.SelectedNode != resolved.LogicalNode {
+		if err := h.cfgMgr.SetSelectedNode(resolved.LogicalNode); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+
+	return changed, nil
+}
+
+func (h *Handlers) shouldRestartAfterSubscriptionRefresh(
+	beforeNodes []singbox.Outbound,
+	afterNodes []singbox.Outbound,
+	beforeResolved nodeselector.ResolvedSelection,
+	afterResolved nodeselector.ResolvedSelection,
+	selectionChanged bool,
+) bool {
+	if selectionChanged {
+		return true
+	}
+
+	if beforeResolved.SelectedMode != afterResolved.SelectedMode {
+		return true
+	}
+
+	if afterResolved.SelectedMode != "manual" {
+		return false
+	}
+
+	beforeNode, beforeOK := findNodeByTag(beforeNodes, beforeResolved.EffectiveNode)
+	afterNode, afterOK := findNodeByTag(afterNodes, afterResolved.EffectiveNode)
+	if beforeOK != afterOK {
+		return true
+	}
+	if !beforeOK || !afterOK {
+		return false
+	}
+
+	return !reflect.DeepEqual(beforeNode, afterNode)
+}
+
+func findNodeByTag(nodes []singbox.Outbound, tag string) (singbox.Outbound, bool) {
+	for _, node := range nodes {
+		if node.Tag == tag {
+			return node, true
+		}
+	}
+	return singbox.Outbound{}, false
+}
+
+func (h *Handlers) startBackgroundNodeTesting() {
+	h.testMu.Lock()
+	if h.testing {
+		h.testMu.Unlock()
+		return
+	}
+	h.testing = true
+	h.testMu.Unlock()
+
+	go func() {
+		defer func() {
+			h.testMu.Lock()
+			h.testing = false
+			h.testMu.Unlock()
+		}()
+
+		nodes := h.updater.GetNodes()
+		if len(nodes) == 0 {
+			return
+		}
+
+		const workerCount = 5
+		nodeChan := make(chan singbox.Outbound)
+		var wg sync.WaitGroup
+
+		for i := 0; i < workerCount; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for node := range nodeChan {
+					latency, err := h.testNodeLatency(node.Server, node.ServerPort)
+					if err != nil {
+						latency = -1
+					}
+					if err := h.cfgMgr.SetNodeTestResult(nodeselector.NodeKey(node), latency); err != nil {
+						log.Printf("Failed to store node test result for %s: %v", node.Tag, err)
+					}
+				}
+			}()
+		}
+
+		for _, node := range nodes {
+			nodeChan <- node
+		}
+		close(nodeChan)
+		wg.Wait()
+		log.Printf("Background node testing completed for %d nodes", len(nodes))
+	}()
 }
 
 // Bypass handlers

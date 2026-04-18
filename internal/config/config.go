@@ -46,12 +46,12 @@ type DNSConfig struct {
 }
 
 type ProxyConfig struct {
-	TUNEnabled    bool   `yaml:"tun_enabled" json:"tun_enabled"`       // 是否启用 TUN 模式
-	TUNAddress    string `yaml:"tun_address" json:"tun_address"`       // TUN 接口地址
-	TUNStack      string `yaml:"tun_stack" json:"tun_stack"`           // TUN 协议栈
-	AutoRoute     bool   `yaml:"auto_route" json:"auto_route"`         // 自动路由
-	StrictRoute   bool   `yaml:"strict_route" json:"strict_route"`     // 严格路由
-	SOCK5Port     int    `yaml:"socks5_port" json:"socks5_port"`       // SOCKS5 代理端口，0 表示禁用
+	TUNEnabled    bool   `yaml:"tun_enabled" json:"tun_enabled"`         // 是否启用 TUN 模式
+	TUNAddress    string `yaml:"tun_address" json:"tun_address"`         // TUN 接口地址
+	TUNStack      string `yaml:"tun_stack" json:"tun_stack"`             // TUN 协议栈
+	AutoRoute     bool   `yaml:"auto_route" json:"auto_route"`           // 自动路由
+	StrictRoute   bool   `yaml:"strict_route" json:"strict_route"`       // 严格路由
+	SOCK5Port     int    `yaml:"socks5_port" json:"socks5_port"`         // SOCKS5 代理端口，0 表示禁用
 	HTTPProxyPort int    `yaml:"http_proxy_port" json:"http_proxy_port"` // HTTP 代理端口，0 表示禁用
 }
 
@@ -61,20 +61,25 @@ type SubscriptionConfig struct {
 }
 
 type Subscription struct {
-	ID        string `yaml:"id" json:"id"`
-	Name      string `yaml:"name" json:"name"`
-	URL       string `yaml:"url" json:"url"`
-	UpdatedAt string `yaml:"updated_at" json:"updated_at"`
+	ID                   string `yaml:"id" json:"id"`
+	Name                 string `yaml:"name" json:"name"`
+	URL                  string `yaml:"url" json:"url"`
+	UpdatedAt            string `yaml:"updated_at" json:"updated_at"`
+	AutoUpdate           bool   `yaml:"auto_update" json:"auto_update"`
+	AutoUpdateConfigured bool   `yaml:"auto_update_configured,omitempty" json:"-"`
+	UpdateInterval       int    `yaml:"update_interval" json:"update_interval"`
 }
 
 type AppState struct {
-	Subscriptions   []Subscription `yaml:"subscriptions" json:"subscriptions"`
-	SelectedNode    string         `yaml:"selected_node" json:"selected_node"`
-	ProxyMode       string         `yaml:"proxy_mode" json:"proxy_mode"` // global, rule, direct
-	CustomRules     []CustomRule   `yaml:"custom_rules" json:"custom_rules"`
-	BypassList      []BypassEntry  `yaml:"bypass_list" json:"bypass_list"` // 完全绕过 TUN 的地址
-	AutoStart       bool           `yaml:"auto_start" json:"auto_start"`   // 启动时自动启动 sing-box
-	LastRuleUpdate  string         `yaml:"last_rule_update" json:"last_rule_update"` // 上次规则更新时间
+	Subscriptions           []Subscription `yaml:"subscriptions" json:"subscriptions"`
+	SelectedNode            string         `yaml:"selected_node" json:"selected_node"`
+	ProxyMode               string         `yaml:"proxy_mode" json:"proxy_mode"` // global, rule, direct
+	CustomRules             []CustomRule   `yaml:"custom_rules" json:"custom_rules"`
+	BypassList              []BypassEntry  `yaml:"bypass_list" json:"bypass_list"`           // 完全绕过 TUN 的地址
+	AutoStart               bool           `yaml:"auto_start" json:"auto_start"`             // 启动时自动启动 sing-box
+	LastRuleUpdate          string         `yaml:"last_rule_update" json:"last_rule_update"` // 上次规则更新时间
+	NodeSelectionPreference string         `yaml:"node_selection_preference" json:"node_selection_preference"`
+	NodeTestResults         map[string]int `yaml:"node_test_results" json:"-"`
 }
 
 // BypassEntry 表示一个需要完全绕过 TUN 的地址
@@ -84,7 +89,7 @@ type BypassEntry struct {
 }
 
 type CustomRule struct {
-	Type     string `yaml:"type" json:"type"`         // domain, domain_suffix, ip_cidr, geosite, geoip
+	Type     string `yaml:"type" json:"type"` // domain, domain_suffix, ip_cidr, geosite, geoip
 	Value    string `yaml:"value" json:"value"`
 	Outbound string `yaml:"outbound" json:"outbound"` // proxy, direct, block
 }
@@ -95,10 +100,10 @@ var (
 )
 
 type Manager struct {
-	mu       sync.RWMutex
-	config   *Config
-	state    *AppState
-	dataDir  string
+	mu      sync.RWMutex
+	config  *Config
+	state   *AppState
+	dataDir string
 }
 
 func GetManager() *Manager {
@@ -175,6 +180,16 @@ func (m *Manager) loadState() error {
 	if err := yaml.Unmarshal(data, &state); err != nil {
 		return err
 	}
+	if state.SelectedNode == "" {
+		state.SelectedNode = "auto"
+	}
+	if state.NodeSelectionPreference == "" {
+		state.NodeSelectionPreference = "auto"
+	}
+	if state.NodeTestResults == nil {
+		state.NodeTestResults = make(map[string]int)
+	}
+	m.normalizeSubscriptionsLocked(&state)
 	m.state = &state
 	return nil
 }
@@ -197,11 +212,11 @@ func (m *Manager) defaultConfig() *Config {
 		Proxy: ProxyConfig{
 			TUNEnabled:    false, // 默认关闭 TUN 模式
 			TUNAddress:    "172.19.0.1/30",
-			TUNStack:     "system",
-			AutoRoute:    true,
-			StrictRoute:  true,
-			SOCK5Port:    10808,  // SOCKS5 端口
-			HTTPProxyPort: 10809,  // HTTP 代理端口
+			TUNStack:      "system",
+			AutoRoute:     true,
+			StrictRoute:   true,
+			SOCK5Port:     10808, // SOCKS5 端口
+			HTTPProxyPort: 10809, // HTTP 代理端口
 		},
 		Subscription: SubscriptionConfig{
 			AutoUpdate:     true,
@@ -212,11 +227,30 @@ func (m *Manager) defaultConfig() *Config {
 
 func (m *Manager) defaultState() *AppState {
 	return &AppState{
-		Subscriptions: []Subscription{},
-		SelectedNode:  "",
-		ProxyMode:     "rule",
-		CustomRules:   []CustomRule{},
-		BypassList:    []BypassEntry{},
+		Subscriptions:           []Subscription{},
+		SelectedNode:            "auto",
+		ProxyMode:               "rule",
+		CustomRules:             []CustomRule{},
+		BypassList:              []BypassEntry{},
+		NodeSelectionPreference: "auto",
+		NodeTestResults:         make(map[string]int),
+	}
+}
+
+func (m *Manager) normalizeSubscriptionsLocked(state *AppState) {
+	defaultInterval := 60
+	if m.config != nil && m.config.Subscription.UpdateInterval > 0 {
+		defaultInterval = m.config.Subscription.UpdateInterval
+	}
+
+	for i := range state.Subscriptions {
+		if !state.Subscriptions[i].AutoUpdateConfigured {
+			state.Subscriptions[i].AutoUpdate = true
+			state.Subscriptions[i].AutoUpdateConfigured = true
+		}
+		if state.Subscriptions[i].UpdateInterval <= 0 {
+			state.Subscriptions[i].UpdateInterval = defaultInterval
+		}
 	}
 }
 
@@ -266,6 +300,14 @@ func (m *Manager) GetSubscriptions() []Subscription {
 func (m *Manager) AddSubscription(sub Subscription) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if !sub.AutoUpdate && sub.UpdateInterval > 0 {
+		sub.AutoUpdate = true
+	}
+	sub.AutoUpdateConfigured = true
+	if sub.AutoUpdate && sub.UpdateInterval <= 0 {
+		sub.UpdateInterval = m.config.Subscription.UpdateInterval
+	}
 	m.state.Subscriptions = append(m.state.Subscriptions, sub)
 	return m.saveState()
 }
@@ -275,6 +317,18 @@ func (m *Manager) UpdateSubscription(sub Subscription) error {
 	defer m.mu.Unlock()
 	for i, s := range m.state.Subscriptions {
 		if s.ID == sub.ID {
+			if !sub.AutoUpdate && sub.UpdateInterval > 0 && !s.AutoUpdate {
+				sub.AutoUpdate = false
+			} else if !sub.AutoUpdate && sub.UpdateInterval > 0 {
+				sub.AutoUpdate = true
+			}
+			sub.AutoUpdateConfigured = true
+			if sub.AutoUpdate && sub.UpdateInterval <= 0 {
+				sub.UpdateInterval = m.config.Subscription.UpdateInterval
+			}
+			if sub.UpdatedAt == "" {
+				sub.UpdatedAt = s.UpdatedAt
+			}
 			m.state.Subscriptions[i] = sub
 			return m.saveState()
 		}
@@ -298,6 +352,48 @@ func (m *Manager) SetSelectedNode(node string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.state.SelectedNode = node
+	return m.saveState()
+}
+
+func (m *Manager) SetNodeSelectionPreference(preference string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state.NodeSelectionPreference = preference
+	return m.saveState()
+}
+
+func (m *Manager) GetNodeSelectionPreference() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.state.NodeSelectionPreference
+}
+
+func (m *Manager) GetNodeTestResults() map[string]int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	results := make(map[string]int, len(m.state.NodeTestResults))
+	for key, value := range m.state.NodeTestResults {
+		results[key] = value
+	}
+	return results
+}
+
+func (m *Manager) SetNodeTestResult(key string, latency int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state.NodeTestResults == nil {
+		m.state.NodeTestResults = make(map[string]int)
+	}
+	m.state.NodeTestResults[key] = latency
+	return m.saveState()
+}
+
+func (m *Manager) ClearNodeTestResults() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state.NodeTestResults = make(map[string]int)
 	return m.saveState()
 }
 

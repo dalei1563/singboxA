@@ -59,11 +59,9 @@ func main() {
 		log.Fatalf("Failed to initialize subscription updater: %v", err)
 	}
 
-	// Start auto-update if enabled
-	if cfg.Subscription.AutoUpdate {
-		interval := time.Duration(cfg.Subscription.UpdateInterval) * time.Minute
-		updater.StartAutoUpdate(interval)
-	}
+	// Start subscription auto-update scheduler. Individual subscriptions control
+	// whether they participate in automatic refresh.
+	updater.StartAutoUpdate(time.Minute)
 
 	// Initialize process manager
 	processMgr := singbox.GetProcessManager()

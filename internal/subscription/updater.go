@@ -29,16 +29,16 @@ const (
 )
 
 type Updater struct {
-	mu          sync.Mutex
-	dataDir     string
-	parser      *Parser
-	converter   *Converter
-	httpClient  *http.Client
-	nodes       []singbox.Outbound
-	nodesMu     sync.RWMutex
-	lastUpdate  time.Time
-	stopChan    chan struct{}
-	running     bool
+	mu         sync.Mutex
+	dataDir    string
+	parser     *Parser
+	converter  *Converter
+	httpClient *http.Client
+	nodes      []singbox.Outbound
+	nodesMu    sync.RWMutex
+	lastUpdate time.Time
+	stopChan   chan struct{}
+	running    bool
 }
 
 type CachedSubscription struct {
@@ -94,13 +94,13 @@ func (u *Updater) StartAutoUpdate(interval time.Duration) {
 	u.mu.Unlock()
 
 	go func() {
-		ticker := time.NewTicker(interval)
+		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				if err := u.RefreshAll(); err != nil {
+				if err := u.RefreshDueSubscriptions(); err != nil {
 					log.Printf("Auto-update failed: %v", err)
 				}
 			case <-stopChan:
@@ -190,6 +190,10 @@ func (u *Updater) RefreshAll() error {
 	cfgMgr := config.GetManager()
 	subs := cfgMgr.GetSubscriptions()
 
+	if err := cfgMgr.ClearNodeTestResults(); err != nil {
+		return fmt.Errorf("failed to clear node test results: %w", err)
+	}
+
 	var lastErr error
 	for _, sub := range subs {
 		if err := u.RefreshSubscription(sub); err != nil {
@@ -200,6 +204,61 @@ func (u *Updater) RefreshAll() error {
 
 	u.lastUpdate = time.Now()
 	return lastErr
+}
+
+func (u *Updater) RefreshDueSubscriptions() error {
+	cfgMgr := config.GetManager()
+	subs := cfgMgr.GetSubscriptions()
+	dueSubs := make([]config.Subscription, 0, len(subs))
+
+	for _, sub := range subs {
+		if u.shouldRefreshSubscription(sub) {
+			dueSubs = append(dueSubs, sub)
+		}
+	}
+
+	if len(dueSubs) == 0 {
+		return nil
+	}
+
+	if err := cfgMgr.ClearNodeTestResults(); err != nil {
+		return fmt.Errorf("failed to clear node test results: %w", err)
+	}
+
+	var lastErr error
+	for _, sub := range dueSubs {
+		if err := u.RefreshSubscription(sub); err != nil {
+			lastErr = err
+			log.Printf("Failed to auto-refresh subscription %s: %v", sub.Name, err)
+		}
+	}
+
+	if lastErr == nil {
+		u.lastUpdate = time.Now()
+	}
+	return lastErr
+}
+
+func (u *Updater) shouldRefreshSubscription(sub config.Subscription) bool {
+	if !sub.AutoUpdate {
+		return false
+	}
+
+	intervalMinutes := sub.UpdateInterval
+	if intervalMinutes <= 0 {
+		return false
+	}
+
+	if sub.UpdatedAt == "" {
+		return true
+	}
+
+	updatedAt, err := time.Parse(time.RFC3339, sub.UpdatedAt)
+	if err != nil {
+		return true
+	}
+
+	return time.Since(updatedAt) >= time.Duration(intervalMinutes)*time.Minute
 }
 
 func (u *Updater) GetNodes() []singbox.Outbound {

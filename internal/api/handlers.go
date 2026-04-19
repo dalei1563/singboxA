@@ -23,19 +23,21 @@ import (
 )
 
 type Handlers struct {
-	cfgMgr     *config.Manager
-	processMgr *singbox.ProcessManager
-	updater    *subscription.Updater
-	generator  *singbox.ConfigGenerator
-	rulesMgr   *rules.RuleManager
-	bypassMgr  *bypass.Manager
-	testMu     sync.Mutex
-	testing    bool
+	cfgMgr       *config.Manager
+	processMgr   *singbox.ProcessManager
+	updater      *subscription.Updater
+	generator    *singbox.ConfigGenerator
+	rulesMgr     *rules.RuleManager
+	bypassMgr    *bypass.Manager
+	testMu       sync.Mutex
+	testing      bool
+	pendingRun   bool
+	pendingNodes []singbox.Outbound
 }
 
 func NewHandlers() *Handlers {
 	cfgMgr := config.GetManager()
-	return &Handlers{
+	h := &Handlers{
 		cfgMgr:     cfgMgr,
 		processMgr: singbox.GetProcessManager(),
 		updater:    subscription.GetUpdater(),
@@ -43,6 +45,8 @@ func NewHandlers() *Handlers {
 		rulesMgr:   rules.NewRuleManager(),
 		bypassMgr:  bypass.GetManager(),
 	}
+	h.updater.SetRefreshCallback(h.handleAutomaticRefresh)
+	return h
 }
 
 type Response struct {
@@ -89,9 +93,11 @@ func (h *Handlers) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"binary_exists":             exists,
 		"version":                   strings.TrimSpace(version),
 		"node_count":                len(nodes),
+		"node_testing":              h.isNodeTesting(),
 		"selected_node":             resolved.LogicalNode,
 		"selected_mode":             resolved.SelectedMode,
 		"effective_node":            resolved.EffectiveNode,
+		"recommended_node":          resolved.Recommended,
 		"node_selection_preference": resolved.Preference,
 		"proxy_mode":                state.ProxyMode,
 		"last_update":               h.updater.GetLastUpdate(),
@@ -146,6 +152,15 @@ func (h *Handlers) Restart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
+	}
+
+	nodes := h.updater.GetNodes()
+	state := h.cfgMgr.GetState()
+	if state.SelectedNode == nodeselector.AutoNodeTag {
+		if err := h.applyRecommendedAutoSelection(nodes); err != nil {
+			h.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to apply recommended node before restart: %v", err))
+			return
+		}
 	}
 
 	// Generate config before restarting
@@ -205,7 +220,7 @@ func (h *Handlers) HandleSubscriptions(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Failed to normalize node selection after adding subscription: %v", err)
 				return
 			}
-			h.startBackgroundNodeTesting()
+			h.queueBackgroundNodeTesting(h.updater.GetNodes())
 		}()
 
 		h.sendJSON(w, sub)
@@ -282,36 +297,12 @@ func (h *Handlers) RefreshSubscriptions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	beforeNodes := h.updater.GetNodes()
-	beforeState := h.cfgMgr.GetState()
-	beforeResolved := nodeselector.Resolve(beforeNodes, beforeState)
-
-	if err := h.updater.RefreshAll(); err != nil {
-		h.sendError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	afterNodes := h.updater.GetNodes()
-	selectionChanged, err := h.normalizeSelectionStateWithNodes(afterNodes)
+	result, err := h.updater.RefreshAll()
 	if err != nil {
 		h.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	afterState := h.cfgMgr.GetState()
-	afterResolved := nodeselector.Resolve(afterNodes, afterState)
-
-	if h.processMgr.GetState() == singbox.StateRunning && h.shouldRestartAfterSubscriptionRefresh(beforeNodes, afterNodes, beforeResolved, afterResolved, selectionChanged) {
-		if err := h.generateConfig(); err != nil {
-			h.sendError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if err := h.processMgr.Restart(); err != nil {
-			h.sendError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
-	h.startBackgroundNodeTesting()
+	h.handleRefreshResult(result)
 
 	h.sendJSON(w, map[string]string{
 		"status":         "refreshed",
@@ -329,6 +320,7 @@ type NodeInfo struct {
 	Selected      bool   `json:"selected"`
 	Latency       int    `json:"latency,omitempty"`
 	EffectiveNode string `json:"effective_node,omitempty"`
+	Recommended   string `json:"recommended_node,omitempty"`
 	Virtual       bool   `json:"virtual,omitempty"`
 }
 
@@ -342,17 +334,26 @@ func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
 	state := h.cfgMgr.GetState()
 	resolved := nodeselector.Resolve(nodes, state)
 	testResults := h.cfgMgr.GetNodeTestResults()
+	autoEffective := state.AppliedAutoNode
+	autoRecommended := state.RecommendedAutoNode
+	if autoRecommended == "" {
+		autoRecommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	}
+	if autoEffective == "" || !nodeExistsByTag(nodes, autoEffective) {
+		autoEffective = autoRecommended
+	}
 
 	nodeInfos := make([]NodeInfo, 0, len(nodes)+1)
 	autoNode := NodeInfo{
 		Name:          nodeselector.AutoNodeTag,
 		Type:          "auto",
 		Selected:      resolved.SelectedMode == "auto",
-		EffectiveNode: resolved.EffectiveNode,
+		EffectiveNode: autoEffective,
+		Recommended:   autoRecommended,
 		Virtual:       true,
 	}
 	for _, node := range nodes {
-		if node.Tag != resolved.EffectiveNode {
+		if node.Tag != autoEffective {
 			continue
 		}
 		if latency, ok := testResults[nodeselector.NodeKey(node)]; ok {
@@ -409,6 +410,17 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if selectedNode == nodeselector.AutoNodeTag {
+			if err := h.ensureAutoSelectionLocked(h.updater.GetNodes()); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		} else {
+			if err := h.resetAutoSelectionToRecommended(h.updater.GetNodes()); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 
 		// Regenerate config if running
 		if h.processMgr.GetState() == singbox.StateRunning {
@@ -422,9 +434,45 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 		nodes := h.updater.GetNodes()
 		resolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
 		h.sendJSON(w, map[string]string{
-			"selected":       resolved.LogicalNode,
-			"selected_mode":  resolved.SelectedMode,
-			"effective_node": resolved.EffectiveNode,
+			"selected":         resolved.LogicalNode,
+			"selected_mode":    resolved.SelectedMode,
+			"effective_node":   resolved.EffectiveNode,
+			"recommended_node": resolved.Recommended,
+		})
+
+	case "apply-recommended":
+		if r.Method != "POST" {
+			h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		if nodeName != nodeselector.AutoNodeTag {
+			h.sendError(w, http.StatusBadRequest, "Apply recommended is only supported for auto node")
+			return
+		}
+
+		nodes := h.updater.GetNodes()
+		if err := h.applyRecommendedAutoSelection(nodes); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		if h.processMgr.GetState() == singbox.StateRunning {
+			if err := h.generateConfig(); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := h.processMgr.Restart(); err != nil {
+				h.sendError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		resolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
+		h.sendJSON(w, map[string]string{
+			"selected":         resolved.LogicalNode,
+			"selected_mode":    resolved.SelectedMode,
+			"effective_node":   resolved.EffectiveNode,
+			"recommended_node": resolved.Recommended,
 		})
 
 	case "test":
@@ -475,6 +523,24 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handlers) TestAllNodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	nodes := h.updater.GetNodes()
+	if len(nodes) == 0 {
+		h.sendError(w, http.StatusBadRequest, "No nodes available")
+		return
+	}
+
+	h.queueBackgroundNodeTesting(nodes)
+	h.sendJSON(w, map[string]string{
+		"status": "started",
+	})
+}
+
 func (h *Handlers) testNodeLatency(server string, port int) (int, error) {
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", server, port), 5*time.Second)
@@ -510,12 +576,16 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if err := h.ensureAutoSelectionLocked(h.updater.GetNodes()); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		selectionChanged, err := h.normalizeSelectionState()
 		if err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if selectionChanged && h.processMgr.GetState() == singbox.StateRunning {
+		if (selectionChanged || h.cfgMgr.GetState().SelectedNode == nodeselector.AutoNodeTag) && h.processMgr.GetState() == singbox.StateRunning {
 			if err := h.generateConfig(); err != nil {
 				h.sendError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -864,6 +934,9 @@ func (h *Handlers) generateConfig() error {
 	if _, err := h.normalizeSelectionStateWithNodes(nodes); err != nil {
 		return err
 	}
+	if err := h.ensureAutoSelectionLocked(nodes); err != nil {
+		return err
+	}
 	cfg := h.cfgMgr.GetConfig()
 	state := h.cfgMgr.GetState()
 
@@ -912,18 +985,88 @@ func (h *Handlers) normalizeSelectionStateWithNodes(nodes []singbox.Outbound) (b
 	return changed, nil
 }
 
+func (h *Handlers) ensureAutoSelectionLocked(nodes []singbox.Outbound) error {
+	state := h.cfgMgr.GetState()
+	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	applied := state.AppliedAutoNode
+	if applied == "" || !nodeExistsByTag(nodes, applied) {
+		applied = recommended
+	}
+	if state.AppliedAutoNode == applied && state.RecommendedAutoNode == recommended {
+		return nil
+	}
+	return h.cfgMgr.SetAutoSelectionState(applied, recommended)
+}
+
+func (h *Handlers) resetAutoSelectionToRecommended(nodes []singbox.Outbound) error {
+	state := h.cfgMgr.GetState()
+	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	if recommended == "" {
+		recommended = state.AppliedAutoNode
+	}
+	if state.AppliedAutoNode == recommended && state.RecommendedAutoNode == recommended {
+		return nil
+	}
+	return h.cfgMgr.SetAutoSelectionState(recommended, recommended)
+}
+
+func (h *Handlers) applyRecommendedAutoSelection(nodes []singbox.Outbound) error {
+	state := h.cfgMgr.GetState()
+	recommended := state.RecommendedAutoNode
+	if recommended == "" || !nodeExistsByTag(nodes, recommended) {
+		recommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	}
+	if recommended == "" {
+		return fmt.Errorf("no recommended node available")
+	}
+	if state.AppliedAutoNode == recommended && state.RecommendedAutoNode == recommended {
+		return nil
+	}
+	return h.cfgMgr.SetAutoSelectionState(recommended, recommended)
+}
+
+func (h *Handlers) handleAutomaticRefresh(result subscription.RefreshResult) {
+	h.handleRefreshResult(result)
+}
+
+func (h *Handlers) handleRefreshResult(result subscription.RefreshResult) {
+	if !result.Updated {
+		return
+	}
+
+	beforeState := h.cfgMgr.GetState()
+	beforeResolved := nodeselector.Resolve(result.BeforeNodes, beforeState)
+
+	if _, err := h.normalizeSelectionStateWithNodes(result.AfterNodes); err != nil {
+		log.Printf("Failed to normalize selection after subscription refresh: %v", err)
+		return
+	}
+
+	afterState := h.cfgMgr.GetState()
+	afterResolved := nodeselector.Resolve(result.AfterNodes, afterState)
+
+	if h.processMgr.GetState() == singbox.StateRunning && h.shouldRestartAfterSubscriptionRefresh(result.BeforeNodes, result.AfterNodes, beforeResolved, afterResolved) {
+		if err := h.generateConfig(); err != nil {
+			log.Printf("Failed to generate config after subscription refresh: %v", err)
+		} else if err := h.processMgr.Restart(); err != nil {
+			log.Printf("Failed to restart sing-box after subscription refresh: %v", err)
+		}
+	}
+
+	h.queueBackgroundNodeTesting(result.AfterNodes)
+}
+
 func (h *Handlers) shouldRestartAfterSubscriptionRefresh(
 	beforeNodes []singbox.Outbound,
 	afterNodes []singbox.Outbound,
 	beforeResolved nodeselector.ResolvedSelection,
 	afterResolved nodeselector.ResolvedSelection,
-	selectionChanged bool,
 ) bool {
-	if selectionChanged {
+	if beforeResolved.SelectedMode != afterResolved.SelectedMode {
 		return true
 	}
 
-	if beforeResolved.SelectedMode != afterResolved.SelectedMode {
+	if beforeResolved.LogicalNode != afterResolved.LogicalNode {
 		return true
 	}
 
@@ -952,9 +1095,22 @@ func findNodeByTag(nodes []singbox.Outbound, tag string) (singbox.Outbound, bool
 	return singbox.Outbound{}, false
 }
 
-func (h *Handlers) startBackgroundNodeTesting() {
+func nodeExistsByTag(nodes []singbox.Outbound, tag string) bool {
+	_, ok := findNodeByTag(nodes, tag)
+	return ok
+}
+
+func (h *Handlers) isNodeTesting() bool {
+	h.testMu.Lock()
+	defer h.testMu.Unlock()
+	return h.testing || h.pendingRun
+}
+
+func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
 	h.testMu.Lock()
 	if h.testing {
+		h.pendingRun = true
+		h.pendingNodes = append([]singbox.Outbound(nil), nodes...)
 		h.testMu.Unlock()
 		return
 	}
@@ -962,44 +1118,105 @@ func (h *Handlers) startBackgroundNodeTesting() {
 	h.testMu.Unlock()
 
 	go func() {
-		defer func() {
-			h.testMu.Lock()
-			h.testing = false
-			h.testMu.Unlock()
-		}()
-
-		nodes := h.updater.GetNodes()
-		if len(nodes) == 0 {
-			return
-		}
-
-		const workerCount = 5
-		nodeChan := make(chan singbox.Outbound)
-		var wg sync.WaitGroup
-
-		for i := 0; i < workerCount; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for node := range nodeChan {
-					latency, err := h.testNodeLatency(node.Server, node.ServerPort)
-					if err != nil {
-						latency = -1
-					}
-					if err := h.cfgMgr.SetNodeTestResult(nodeselector.NodeKey(node), latency); err != nil {
-						log.Printf("Failed to store node test result for %s: %v", node.Tag, err)
-					}
+		currentNodes := append([]singbox.Outbound(nil), nodes...)
+		for {
+			if len(currentNodes) > 0 {
+				results := h.runNodeTests(currentNodes)
+				if err := h.cfgMgr.ReplaceNodeTestResults(results); err != nil {
+					log.Printf("Failed to persist node test results: %v", err)
+				} else if err := h.reconcileAutoSelectionAfterTesting(currentNodes); err != nil {
+					log.Printf("Failed to reconcile auto selection after testing: %v", err)
 				}
-			}()
-		}
+				log.Printf("Background node testing completed for %d nodes", len(currentNodes))
+			}
 
-		for _, node := range nodes {
-			nodeChan <- node
+			h.testMu.Lock()
+			if !h.pendingRun {
+				h.testing = false
+				h.testMu.Unlock()
+				return
+			}
+			currentNodes = append([]singbox.Outbound(nil), h.pendingNodes...)
+			h.pendingRun = false
+			h.pendingNodes = nil
+			h.testMu.Unlock()
 		}
-		close(nodeChan)
-		wg.Wait()
-		log.Printf("Background node testing completed for %d nodes", len(nodes))
 	}()
+}
+
+func (h *Handlers) runNodeTests(nodes []singbox.Outbound) map[string]int {
+	results := make(map[string]int, len(nodes))
+	const workerCount = 5
+	nodeChan := make(chan singbox.Outbound)
+	var wg sync.WaitGroup
+	var resultsMu sync.Mutex
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for node := range nodeChan {
+				latency, err := h.testNodeLatency(node.Server, node.ServerPort)
+				if err != nil {
+					latency = -1
+				}
+				resultsMu.Lock()
+				results[nodeselector.NodeKey(node)] = latency
+				resultsMu.Unlock()
+			}
+		}()
+	}
+
+	for _, node := range nodes {
+		nodeChan <- node
+	}
+	close(nodeChan)
+	wg.Wait()
+	return results
+}
+
+func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) error {
+	state := h.cfgMgr.GetState()
+	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	applied := state.AppliedAutoNode
+	switchTarget := ""
+
+	if state.SelectedNode != nodeselector.AutoNodeTag {
+		applied = recommended
+	} else {
+		switch {
+		case applied == "":
+			switchTarget = recommended
+		case !nodeExistsByTag(nodes, applied):
+			switchTarget = recommended
+		default:
+			node, ok := findNodeByTag(nodes, applied)
+			if ok {
+				if latency, exists := state.NodeTestResults[nodeselector.NodeKey(node)]; exists && latency < 0 && recommended != "" && recommended != applied {
+					switchTarget = recommended
+				}
+			}
+		}
+	}
+
+	if switchTarget != "" {
+		applied = switchTarget
+	} else if applied == "" {
+		applied = recommended
+	}
+
+	if err := h.cfgMgr.SetAutoSelectionState(applied, recommended); err != nil {
+		return err
+	}
+
+	if switchTarget == "" || h.processMgr.GetState() != singbox.StateRunning {
+		return nil
+	}
+
+	if err := h.generateConfig(); err != nil {
+		return err
+	}
+	return h.processMgr.Restart()
 }
 
 // Bypass handlers

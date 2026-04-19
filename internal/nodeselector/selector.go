@@ -16,6 +16,7 @@ type ResolvedSelection struct {
 	SelectedMode  string `json:"selected_mode"`
 	LogicalNode   string `json:"selected_node"`
 	EffectiveNode string `json:"effective_node"`
+	Recommended   string `json:"recommended_node"`
 	Preference    string `json:"node_selection_preference"`
 }
 
@@ -24,25 +25,33 @@ func Resolve(nodes []singbox.Outbound, state config.AppState) ResolvedSelection 
 	if preference == "" {
 		preference = AutoNodeTag
 	}
+	recommended := PickRecommendedNode(nodes, preference, state.NodeTestResults)
 
 	if state.SelectedNode != "" && state.SelectedNode != AutoNodeTag && hasNode(nodes, state.SelectedNode) {
 		return ResolvedSelection{
 			SelectedMode:  "manual",
 			LogicalNode:   state.SelectedNode,
 			EffectiveNode: state.SelectedNode,
+			Recommended:   recommended,
 			Preference:    preference,
 		}
+	}
+
+	effective := state.AppliedAutoNode
+	if effective == "" {
+		effective = recommended
 	}
 
 	return ResolvedSelection{
 		SelectedMode:  "auto",
 		LogicalNode:   AutoNodeTag,
-		EffectiveNode: PickEffectiveNode(nodes, preference, state.NodeTestResults),
+		EffectiveNode: effective,
+		Recommended:   recommended,
 		Preference:    preference,
 	}
 }
 
-func PickEffectiveNode(nodes []singbox.Outbound, preference string, testResults map[string]int) string {
+func PickRecommendedNode(nodes []singbox.Outbound, preference string, testResults map[string]int) string {
 	candidates := filterNodesByPreference(nodes, NormalizePreference(preference))
 	if len(candidates) == 0 {
 		candidates = append([]singbox.Outbound(nil), nodes...)

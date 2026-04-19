@@ -73,6 +73,8 @@ type Subscription struct {
 type AppState struct {
 	Subscriptions           []Subscription `yaml:"subscriptions" json:"subscriptions"`
 	SelectedNode            string         `yaml:"selected_node" json:"selected_node"`
+	AppliedAutoNode         string         `yaml:"applied_auto_node" json:"applied_auto_node"`
+	RecommendedAutoNode     string         `yaml:"recommended_auto_node" json:"recommended_auto_node"`
 	ProxyMode               string         `yaml:"proxy_mode" json:"proxy_mode"` // global, rule, direct
 	CustomRules             []CustomRule   `yaml:"custom_rules" json:"custom_rules"`
 	BypassList              []BypassEntry  `yaml:"bypass_list" json:"bypass_list"`           // 完全绕过 TUN 的地址
@@ -229,6 +231,8 @@ func (m *Manager) defaultState() *AppState {
 	return &AppState{
 		Subscriptions:           []Subscription{},
 		SelectedNode:            "auto",
+		AppliedAutoNode:         "",
+		RecommendedAutoNode:     "",
 		ProxyMode:               "rule",
 		CustomRules:             []CustomRule{},
 		BypassList:              []BypassEntry{},
@@ -362,6 +366,28 @@ func (m *Manager) SetNodeSelectionPreference(preference string) error {
 	return m.saveState()
 }
 
+func (m *Manager) SetAutoSelectionState(appliedNode, recommendedNode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state.AppliedAutoNode = appliedNode
+	m.state.RecommendedAutoNode = recommendedNode
+	return m.saveState()
+}
+
+func (m *Manager) SetAppliedAutoNode(node string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state.AppliedAutoNode = node
+	return m.saveState()
+}
+
+func (m *Manager) SetRecommendedAutoNode(node string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state.RecommendedAutoNode = node
+	return m.saveState()
+}
+
 func (m *Manager) GetNodeSelectionPreference() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -387,6 +413,17 @@ func (m *Manager) SetNodeTestResult(key string, latency int) error {
 		m.state.NodeTestResults = make(map[string]int)
 	}
 	m.state.NodeTestResults[key] = latency
+	return m.saveState()
+}
+
+func (m *Manager) ReplaceNodeTestResults(results map[string]int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.state.NodeTestResults = make(map[string]int, len(results))
+	for key, value := range results {
+		m.state.NodeTestResults[key] = value
+	}
 	return m.saveState()
 }
 

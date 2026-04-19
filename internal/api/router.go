@@ -42,6 +42,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/api/subscriptions/refresh", r.corsMiddleware(r.handlers.RefreshSubscriptions))
 
 	r.mux.HandleFunc("/api/nodes", r.corsMiddleware(r.handlers.GetNodes))
+	r.mux.HandleFunc("/api/nodes/test-all", r.corsMiddleware(r.handlers.TestAllNodes))
 	r.mux.HandleFunc("/api/nodes/", r.corsMiddleware(r.handlers.HandleNodeAction))
 
 	r.mux.HandleFunc("/api/config", r.corsMiddleware(r.handlers.HandleConfig))

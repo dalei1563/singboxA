@@ -440,28 +440,20 @@ func (g *ConfigGenerator) generateOutbounds(nodes []Outbound, state config.AppSt
 	selector := Outbound{
 		Type:                      "selector",
 		Tag:                       "proxy",
-		Outbounds:                 append([]string{"auto"}, nodeTags...),
-		Default:                   "auto",
+		Outbounds:                 append([]string(nil), nodeTags...),
+		Default:                   "",
 		InterruptExistConnections: true,
 	}
 	if state.SelectedNode != "" && state.SelectedNode != "auto" {
 		selector.Default = state.SelectedNode
+	} else if state.AppliedAutoNode != "" && containsTag(nodeTags, state.AppliedAutoNode) {
+		selector.Default = state.AppliedAutoNode
+	} else if state.RecommendedAutoNode != "" && containsTag(nodeTags, state.RecommendedAutoNode) {
+		selector.Default = state.RecommendedAutoNode
+	} else if len(nodeTags) > 0 {
+		selector.Default = nodeTags[0]
 	}
 	outbounds = append(outbounds, selector)
-
-	// Add URLTest (auto selection) with optimized settings
-	if len(nodeTags) > 0 {
-		outbounds = append(outbounds, Outbound{
-			Type:                      "urltest",
-			Tag:                       "auto",
-			Outbounds:                 nodeTags,
-			URL:                       "https://www.gstatic.com/generate_204", // Google 连通性测试，快速可靠
-			Interval:                  "3m",                                   // 每 3 分钟测试一次
-			Tolerance:                 50,                                     // 延迟差异超过 50ms 才切换节点
-			IdleTimeout:               "30m",                                  // 空闲 30 分钟后暂停测试
-			InterruptExistConnections: true,                                   // 切换节点时中断现有连接
-		})
-	}
 
 	// Add direct outbound
 	outbounds = append(outbounds, Outbound{
@@ -473,6 +465,15 @@ func (g *ConfigGenerator) generateOutbounds(nodes []Outbound, state config.AppSt
 	outbounds = append(outbounds, nodes...)
 
 	return outbounds
+}
+
+func containsTag(tags []string, target string) bool {
+	for _, tag := range tags {
+		if tag == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config) *RouteConfig {

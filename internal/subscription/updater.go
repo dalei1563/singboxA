@@ -39,6 +39,7 @@ type Updater struct {
 	lastUpdate time.Time
 	stopChan   chan struct{}
 	running    bool
+	onRefresh  func(RefreshResult)
 }
 
 type CachedSubscription struct {
@@ -47,6 +48,13 @@ type CachedSubscription struct {
 	URL       string       `yaml:"url"`
 	UpdatedAt time.Time    `yaml:"updated_at"`
 	Proxies   []ClashProxy `yaml:"proxies"`
+}
+
+type RefreshResult struct {
+	BeforeNodes []singbox.Outbound
+	AfterNodes  []singbox.Outbound
+	Updated     bool
+	Automatic   bool
 }
 
 var (
@@ -100,8 +108,17 @@ func (u *Updater) StartAutoUpdate(interval time.Duration) {
 		for {
 			select {
 			case <-ticker.C:
-				if err := u.RefreshDueSubscriptions(); err != nil {
+				result, err := u.RefreshDueSubscriptions()
+				if err != nil {
 					log.Printf("Auto-update failed: %v", err)
+				}
+				if err == nil && result.Updated {
+					u.mu.Lock()
+					onRefresh := u.onRefresh
+					u.mu.Unlock()
+					if onRefresh != nil {
+						onRefresh(result)
+					}
 				}
 			case <-stopChan:
 				return
@@ -119,6 +136,12 @@ func (u *Updater) StopAutoUpdate() {
 		u.stopChan = nil
 		u.running = false
 	}
+}
+
+func (u *Updater) SetRefreshCallback(callback func(RefreshResult)) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.onRefresh = callback
 }
 
 func (u *Updater) FetchSubscription(sub config.Subscription) ([]ClashProxy, error) {
@@ -186,30 +209,42 @@ func (u *Updater) RefreshSubscription(sub config.Subscription) error {
 	return u.rebuildNodes()
 }
 
-func (u *Updater) RefreshAll() error {
+func (u *Updater) RefreshAll() (RefreshResult, error) {
 	cfgMgr := config.GetManager()
 	subs := cfgMgr.GetSubscriptions()
+	beforeNodes := u.GetNodes()
 
 	if err := cfgMgr.ClearNodeTestResults(); err != nil {
-		return fmt.Errorf("failed to clear node test results: %w", err)
+		return RefreshResult{}, fmt.Errorf("failed to clear node test results: %w", err)
 	}
 
 	var lastErr error
+	refreshed := false
 	for _, sub := range subs {
 		if err := u.RefreshSubscription(sub); err != nil {
 			lastErr = err
 			log.Printf("Failed to refresh subscription %s: %v", sub.Name, err)
+			continue
 		}
+		refreshed = true
 	}
 
-	u.lastUpdate = time.Now()
-	return lastErr
+	if refreshed {
+		u.lastUpdate = time.Now()
+	}
+	return RefreshResult{
+		BeforeNodes: beforeNodes,
+		AfterNodes:  u.GetNodes(),
+		Updated:     refreshed,
+		Automatic:   false,
+	}, lastErr
 }
 
-func (u *Updater) RefreshDueSubscriptions() error {
+func (u *Updater) RefreshDueSubscriptions() (RefreshResult, error) {
 	cfgMgr := config.GetManager()
 	subs := cfgMgr.GetSubscriptions()
 	dueSubs := make([]config.Subscription, 0, len(subs))
+	beforeNodes := u.GetNodes()
 
 	for _, sub := range subs {
 		if u.shouldRefreshSubscription(sub) {
@@ -218,25 +253,33 @@ func (u *Updater) RefreshDueSubscriptions() error {
 	}
 
 	if len(dueSubs) == 0 {
-		return nil
+		return RefreshResult{BeforeNodes: beforeNodes, AfterNodes: beforeNodes, Updated: false, Automatic: true}, nil
 	}
 
 	if err := cfgMgr.ClearNodeTestResults(); err != nil {
-		return fmt.Errorf("failed to clear node test results: %w", err)
+		return RefreshResult{}, fmt.Errorf("failed to clear node test results: %w", err)
 	}
 
 	var lastErr error
+	refreshed := false
 	for _, sub := range dueSubs {
 		if err := u.RefreshSubscription(sub); err != nil {
 			lastErr = err
 			log.Printf("Failed to auto-refresh subscription %s: %v", sub.Name, err)
+			continue
 		}
+		refreshed = true
 	}
 
-	if lastErr == nil {
+	if refreshed {
 		u.lastUpdate = time.Now()
 	}
-	return lastErr
+	return RefreshResult{
+		BeforeNodes: beforeNodes,
+		AfterNodes:  u.GetNodes(),
+		Updated:     refreshed,
+		Automatic:   true,
+	}, lastErr
 }
 
 func (u *Updater) shouldRefreshSubscription(sub config.Subscription) bool {

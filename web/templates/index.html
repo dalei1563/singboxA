@@ -279,9 +279,11 @@
                                                 </span>
                                                 <span x-text="node.name === 'auto' ? '自动选择' : node.name" class="truncate max-w-xs"></span>
                                             </div>
-                                            <p x-show="node.virtual && node.effective_node"
-                                               class="text-xs text-light-muted mt-1">
+                                            <p x-show="node.virtual && node.effective_node" class="text-xs text-light-muted mt-1">
                                                 当前命中: <span x-text="node.effective_node"></span>
+                                            </p>
+                                            <p x-show="node.virtual && node.recommended_node && node.recommended_node !== node.effective_node" class="text-xs text-light-muted mt-1">
+                                                推荐候选: <span x-text="node.recommended_node"></span>
                                             </p>
                                         </td>
                                         <td class="px-4 py-3">
@@ -307,6 +309,12 @@
                                                         :disabled="node.selected"
                                                         class="px-3 py-1 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors text-orange-500">
                                                     <span x-text="node.virtual ? '启用' : '选择'"></span>
+                                                </button>
+                                                <button @click="applyRecommendedNode()"
+                                                        x-show="node.virtual"
+                                                        :disabled="!canApplyRecommended(node)"
+                                                        class="px-3 py-1 bg-white border-2 border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors text-gray-600">
+                                                    切换到推荐
                                                 </button>
                                                 <button @click="testNodeByName(node.name)"
                                                         x-show="!node.virtual"
@@ -1006,9 +1014,11 @@
                 status: {
                     state: 'stopped',
                     node_count: 0,
+                    node_testing: false,
                     selected_node: 'auto',
                     selected_mode: 'auto',
                     effective_node: '',
+                    recommended_node: '',
                     node_selection_preference: 'auto',
                     proxy_mode: 'rule'
                 },
@@ -1030,6 +1040,7 @@
                 connections: [],
                 connStats: { download: 0, upload: 0 },
                 connInterval: null,
+                uiRefreshInterval: null,
                 showAddSubscription: false,
                 showEditSubscription: false,
                 showAddRule: false,
@@ -1057,7 +1068,15 @@
                     await this.fetchBypass();
 
                     // Start polling
-                    setInterval(() => this.fetchStatus(), 5000);
+                    this.uiRefreshInterval = setInterval(async () => {
+                        await this.fetchStatus();
+                        if (this.currentTab === 'nodes') {
+                            await this.fetchNodes();
+                        }
+                        if (this.currentTab === 'subscriptions') {
+                            await this.fetchSubscriptions();
+                        }
+                    }, 5000);
 
                     // Watch for page changes to manage SSE connection
                     this.$watch('currentTab', (newPage, oldPage) => {
@@ -1073,6 +1092,12 @@
                         } else if (oldPage === 'connections') {
                             this.stopConnPolling();
                         }
+                        if (newPage === 'nodes') {
+                            this.fetchNodes();
+                        }
+                        if (newPage === 'subscriptions') {
+                            this.fetchSubscriptions();
+                        }
                     });
                 },
 
@@ -1082,6 +1107,7 @@
                         const data = await res.json();
                         if (data.success) {
                             this.status = data.data;
+                            this.testing = Boolean(data.data.node_testing);
                         }
                     } catch (e) {
                         console.error('Failed to fetch status:', e);
@@ -1303,6 +1329,11 @@
                         if (data.success) {
                             this.showToast('服务已重启', 'success');
                             await this.fetchStatus();
+                            await this.fetchNodes();
+                            setTimeout(() => {
+                                this.fetchStatus();
+                                this.fetchNodes();
+                            }, 1200);
                         } else {
                             this.showToast(data.error || '重启失败', 'error');
                         }
@@ -1442,6 +1473,30 @@
                             this.showToast('节点已切换', 'success');
                             await this.fetchNodes();
                             await this.fetchStatus();
+                            setTimeout(() => {
+                                this.fetchNodes();
+                                this.fetchStatus();
+                            }, 800);
+                        } else {
+                            this.showToast(data.error || '切换失败', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('切换失败: ' + e.message, 'error');
+                    }
+                },
+
+                async applyRecommendedNode() {
+                    try {
+                        const res = await fetch('/api/nodes/auto/apply-recommended', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('已切换到推荐节点', 'success');
+                            await this.fetchNodes();
+                            await this.fetchStatus();
+                            setTimeout(() => {
+                                this.fetchNodes();
+                                this.fetchStatus();
+                            }, 800);
                         } else {
                             this.showToast(data.error || '切换失败', 'error');
                         }
@@ -1507,22 +1562,20 @@
                     this.showToast('开始测速全部节点...', 'info');
                     this.testing = true;
 
-                    const workerCount = Math.min(5, realNodes.length);
-                    let nextIndex = 0;
-
-                    const runWorker = async () => {
-                        while (nextIndex < realNodes.length) {
-                            const currentIndex = nextIndex++;
-                            await this.testNodeByName(realNodes[currentIndex].name, true);
+                    try {
+                        const res = await fetch('/api/nodes/test-all', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            await this.fetchStatus();
+                            await this.fetchNodes();
+                        } else {
+                            this.testing = false;
+                            this.showToast(data.error || '测速失败', 'error');
                         }
-                    };
-
-                    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-                    this.testing = false;
-                    await this.fetchStatus();
-                    await this.fetchNodes();
-
-                    this.showToast('测速完成', 'success');
+                    } catch (e) {
+                        this.testing = false;
+                        this.showToast('测速失败: ' + e.message, 'error');
+                    }
                 },
 
                 async setProxyMode(mode) {
@@ -1790,6 +1843,16 @@
                         return '自动选择';
                     }
                     return this.status.selected_node || '未选择';
+                },
+
+                canApplyRecommended(node) {
+                    return Boolean(
+                        node &&
+                        node.virtual &&
+                        node.effective_node &&
+                        node.recommended_node &&
+                        node.effective_node !== node.recommended_node
+                    );
                 },
 
                 formatDate(dateStr) {

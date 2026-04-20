@@ -20,12 +20,20 @@ type ResolvedSelection struct {
 	Preference    string `json:"node_selection_preference"`
 }
 
+type rankedNode struct {
+	node       singbox.Outbound
+	latency    int
+	tested     bool
+	quality    config.NodeQualityResult
+	hasQuality bool
+}
+
 func Resolve(nodes []singbox.Outbound, state config.AppState) ResolvedSelection {
 	preference := NormalizePreference(state.NodeSelectionPreference)
 	if preference == "" {
 		preference = AutoNodeTag
 	}
-	recommended := PickRecommendedNode(nodes, preference, state.NodeTestResults)
+	recommended := PickRecommendedNode(nodes, preference, state.NodeTestResults, state.NodeQualityResults)
 
 	if state.SelectedNode != "" && state.SelectedNode != AutoNodeTag && hasNode(nodes, state.SelectedNode) {
 		return ResolvedSelection{
@@ -51,7 +59,7 @@ func Resolve(nodes []singbox.Outbound, state config.AppState) ResolvedSelection 
 	}
 }
 
-func PickRecommendedNode(nodes []singbox.Outbound, preference string, testResults map[string]int) string {
+func PickRecommendedNode(nodes []singbox.Outbound, preference string, testResults map[string]int, qualityResults map[string]config.NodeQualityResult) string {
 	candidates := filterNodesByPreference(nodes, NormalizePreference(preference))
 	if len(candidates) == 0 {
 		candidates = append([]singbox.Outbound(nil), nodes...)
@@ -60,33 +68,65 @@ func PickRecommendedNode(nodes []singbox.Outbound, preference string, testResult
 		return ""
 	}
 
-	type rankedNode struct {
-		node    singbox.Outbound
-		latency int
-		tested  bool
-	}
-
 	ranked := make([]rankedNode, 0, len(candidates))
 	for _, node := range candidates {
 		latency, ok := testResults[NodeKey(node)]
+		quality, qualityOK := qualityResults[NodeKey(node)]
 		ranked = append(ranked, rankedNode{
-			node:    node,
-			latency: latency,
-			tested:  ok && latency >= 0,
+			node:       node,
+			latency:    latency,
+			tested:     ok && latency >= 0,
+			quality:    quality,
+			hasQuality: qualityOK && quality.TestedAt != "",
 		})
 	}
 
 	sort.SliceStable(ranked, func(i, j int) bool {
-		if ranked[i].tested != ranked[j].tested {
-			return ranked[i].tested
+		priorityI := recommendationPriority(ranked[i])
+		priorityJ := recommendationPriority(ranked[j])
+		if priorityI != priorityJ {
+			return priorityI < priorityJ
 		}
-		if ranked[i].tested && ranked[j].tested && ranked[i].latency != ranked[j].latency {
+		if priorityI == 0 {
+			if ranked[i].quality.SuccessRate != ranked[j].quality.SuccessRate {
+				return ranked[i].quality.SuccessRate > ranked[j].quality.SuccessRate
+			}
+			latencyI := normalizeRecommendedLatency(ranked[i].quality.HTTPTTFB)
+			latencyJ := normalizeRecommendedLatency(ranked[j].quality.HTTPTTFB)
+			if latencyI != latencyJ {
+				return latencyI < latencyJ
+			}
+		}
+		if priorityI == 1 && ranked[i].latency != ranked[j].latency {
 			return ranked[i].latency < ranked[j].latency
 		}
 		return ranked[i].node.Tag < ranked[j].node.Tag
 	})
 
 	return ranked[0].node.Tag
+}
+
+func normalizeRecommendedLatency(latency int) int {
+	if latency < 0 {
+		return latency
+	}
+	if latency > 999 {
+		return 999
+	}
+	return latency
+}
+
+func recommendationPriority(node rankedNode) int {
+	switch {
+	case node.hasQuality && node.quality.SuccessCount > 0:
+		return 0
+	case node.tested:
+		return 1
+	case node.hasQuality:
+		return 2
+	default:
+		return 3
+	}
 }
 
 func NormalizePreference(preference string) string {

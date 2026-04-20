@@ -35,6 +35,8 @@ func (c *Converter) convertProxy(proxy ClashProxy) *singbox.Outbound {
 		return c.convertVLESS(proxy)
 	case "hysteria2", "hy2":
 		return c.convertHysteria2(proxy)
+	case "anytls":
+		return c.convertAnyTLS(proxy)
 	default:
 		return nil
 	}
@@ -236,6 +238,40 @@ func (c *Converter) convertHysteria2(proxy ClashProxy) *singbox.Outbound {
 	}
 	if proxy.SNI != "" {
 		outbound.TLS.ServerName = proxy.SNI
+	}
+
+	return outbound
+}
+
+func (c *Converter) convertAnyTLS(proxy ClashProxy) *singbox.Outbound {
+	outbound := &singbox.Outbound{
+		Type:       "anytls",
+		Tag:        proxy.Name,
+		Server:     proxy.Server,
+		ServerPort: proxy.Port,
+		Password:   proxy.Password,
+	}
+
+	outbound.TLS = &singbox.TLSConfig{
+		Enabled:    true,
+		ServerName: proxy.ServerName,
+		Insecure:   proxy.SkipCertVerify,
+	}
+	if proxy.SNI != "" {
+		outbound.TLS.ServerName = proxy.SNI
+	}
+	if len(proxy.ALPN) > 0 {
+		outbound.TLS.ALPN = proxy.ALPN
+	}
+	if proxy.ClientFingerprint != "" || proxy.Fingerprint != "" {
+		fp := proxy.ClientFingerprint
+		if fp == "" {
+			fp = proxy.Fingerprint
+		}
+		outbound.TLS.UTLS = &singbox.UTLSConfig{
+			Enabled:     true,
+			Fingerprint: fp,
+		}
 	}
 
 	return outbound

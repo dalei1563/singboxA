@@ -232,13 +232,17 @@
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold">节点管理</h2>
                     <div class="flex items-center gap-3">
+                        <span x-show="status.testing_total > 0"
+                              class="text-sm text-light-muted">
+                            测速进度: <span x-text="status.testing_completed + '/' + status.testing_total"></span>
+                        </span>
                         <button @click="testAllNodes()"
                                 :disabled="loading || testing"
                                 class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-white">
                             <svg class="w-4 h-4" :class="testing ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                             </svg>
-                            一键测速
+                            一键质量检测
                         </button>
                     </div>
                 </div>
@@ -256,14 +260,16 @@
                                         </button>
                                     </th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold">类型</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold">订阅名称</th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold">服务器</th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold">
                                         <button @click="toggleNodeSort('latency')"
                                                 class="inline-flex items-center gap-1 hover:text-orange-500 transition-colors">
-                                            <span>延迟</span>
+                                            <span>HTTP延迟</span>
                                             <span x-text="getNodeSortIndicator('latency')" class="text-xs text-light-muted"></span>
                                         </button>
                                     </th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold">成功率</th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold">操作</th>
                                 </tr>
                             </thead>
@@ -289,19 +295,39 @@
                                         <td class="px-4 py-3">
                                             <span x-text="node.type" class="px-2 py-1 bg-gray-100 rounded text-sm"></span>
                                         </td>
+                                        <td class="px-4 py-3 text-light-muted text-sm">
+                                            <span x-show="!node.virtual && node.subscription_names && node.subscription_names.length"
+                                                  x-text="node.subscription_names.join(', ')"
+                                                  class="truncate max-w-xs block"></span>
+                                            <span x-show="!node.virtual && (!node.subscription_names || !node.subscription_names.length)">-</span>
+                                            <span x-show="node.virtual">-</span>
+                                        </td>
                                         <td class="px-4 py-3 text-light-muted">
                                             <span x-show="!node.virtual" x-text="node.server + ':' + node.port" class="truncate max-w-xs block"></span>
                                             <span x-show="node.virtual" class="truncate max-w-xs block">根据测速结果自动选择最优节点</span>
                                         </td>
                                         <td class="px-4 py-3">
-                                            <span x-show="!node.virtual && node.latency > 0" x-text="node.latency + 'ms'"
+                                            <span x-show="node.latency > 0 && node.latency < 999" x-text="node.latency + 'ms'"
                                                   :class="node.latency < 200 ? 'text-green-400' : node.latency < 500 ? 'text-yellow-400' : 'text-red-400'"></span>
-                                            <span x-show="!node.virtual && node.latency === -1" class="text-red-400">超时</span>
-                                            <span x-show="node.virtual && node.latency > 0" x-text="node.latency + 'ms'"
-                                                  :class="node.latency < 200 ? 'text-green-400' : node.latency < 500 ? 'text-yellow-400' : 'text-red-400'"></span>
-                                            <span x-show="node.virtual && node.latency === -1" class="text-red-400">超时</span>
-                                            <span x-show="node.virtual && (!node.latency && node.latency !== -1)" class="text-light-muted">-</span>
-                                            <span x-show="!node.virtual && !node.latency && node.latency !== -1" class="text-light-muted">-</span>
+                                            <span x-show="node.latency === 999" class="text-red-400">999ms</span>
+                                            <span x-show="node.latency === -1" class="text-red-400">超时</span>
+                                            <span x-show="!node.latency && node.latency !== -1" class="text-light-muted">未测</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <div x-show="node.latency === 999" class="text-red-400">
+                                                质量差
+                                            </div>
+                                            <div x-show="node.sample_count > 0 && node.latency !== 999" x-text="formatQualitySuccess(node)"></div>
+                                            <div x-show="node.sample_count > 0 && node.success_rate === 0 && node.latency !== 999" class="text-red-400">
+                                                超时
+                                            </div>
+                                            <div x-show="!node.sample_count" class="text-light-muted">
+                                                未测
+                                            </div>
+                                            <p x-show="node.virtual && node.recommended_node && node.recommended_node !== node.effective_node && node.recommended_success_rate > 0"
+                                               class="text-xs text-light-muted mt-2">
+                                                推荐: <span x-text="node.recommended_http_ttfb + 'ms / ' + formatRecommendedSuccess(node)"></span>
+                                            </p>
                                         </td>
                                         <td class="px-4 py-3">
                                             <div class="flex gap-2">
@@ -328,7 +354,7 @@
                                     </tr>
                                 </template>
                                 <tr x-show="nodes.length === 0">
-                                    <td colspan="5" class="px-4 py-8 text-center text-light-muted">
+                                    <td colspan="7" class="px-4 py-8 text-center text-light-muted">
                                         暂无节点，请先添加订阅
                                     </td>
                                 </tr>
@@ -1019,6 +1045,8 @@
                     selected_mode: 'auto',
                     effective_node: '',
                     recommended_node: '',
+                    testing_total: 0,
+                    testing_completed: 0,
                     node_selection_preference: 'auto',
                     proxy_mode: 'rule'
                 },
@@ -1535,7 +1563,7 @@
                                 await this.fetchNodes();
                             }
                             if (!silent) {
-                                this.showToast('延迟: ' + data.data.latency + 'ms', 'success');
+                                this.showToast('测速完成', 'success');
                             }
                         } else {
                             this.nodes[nodeIndex].latency = -1;
@@ -1559,7 +1587,7 @@
                         return;
                     }
 
-                    this.showToast('开始测速全部节点...', 'info');
+                    this.showToast('开始测速...', 'info');
                     this.testing = true;
 
                     try {
@@ -1859,6 +1887,18 @@
                     if (!dateStr) return '';
                     const date = new Date(dateStr);
                     return date.toLocaleString('zh-CN');
+                },
+
+                formatQualitySuccess(node) {
+                    if (!node || !node.sample_count) return '未测';
+                    if (node.latency === 999) return '质量差';
+                    return `${node.success_count}/${node.sample_count} 成功`;
+                },
+
+                formatRecommendedSuccess(node) {
+                    if (!node || !node.recommended_success_rate) return '未测';
+                    if (node.recommended_http_ttfb === 999) return '质量差';
+                    return `${node.recommended_success_rate}%`;
                 },
 
                 formatLogTime(timeStr) {

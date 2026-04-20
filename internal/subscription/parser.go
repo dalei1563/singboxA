@@ -3,6 +3,8 @@ package subscription
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -14,31 +16,31 @@ type ClashConfig struct {
 }
 
 type ClashProxy struct {
-	Name           string                 `yaml:"name"`
-	Type           string                 `yaml:"type"`
-	Server         string                 `yaml:"server"`
-	Port           int                    `yaml:"port"`
-	Password       string                 `yaml:"password,omitempty"`
-	UUID           string                 `yaml:"uuid,omitempty"`
-	AlterId        int                    `yaml:"alterId,omitempty"`
-	Cipher         string                 `yaml:"cipher,omitempty"`
-	Method         string                 `yaml:"method,omitempty"`
-	UDP            bool                   `yaml:"udp,omitempty"`
-	TLS            bool                   `yaml:"tls,omitempty"`
-	SkipCertVerify bool                   `yaml:"skip-cert-verify,omitempty"`
-	ServerName     string                 `yaml:"servername,omitempty"`
-	SNI            string                 `yaml:"sni,omitempty"`
-	Network        string                 `yaml:"network,omitempty"`
-	Plugin         string                 `yaml:"plugin,omitempty"`
-	PluginOpts     map[string]interface{} `yaml:"plugin-opts,omitempty"`
-	WSOpts         *WSOptions             `yaml:"ws-opts,omitempty"`
-	GrpcOpts       *GRPCOptions           `yaml:"grpc-opts,omitempty"`
-	H2Opts         *H2Options             `yaml:"h2-opts,omitempty"`
-	RealityOpts    *RealityOptions        `yaml:"reality-opts,omitempty"`
-	Flow           string                 `yaml:"flow,omitempty"`
-	ClientFingerprint string              `yaml:"client-fingerprint,omitempty"`
-	Fingerprint    string                 `yaml:"fingerprint,omitempty"`
-	ALPN           []string               `yaml:"alpn,omitempty"`
+	Name              string                 `yaml:"name"`
+	Type              string                 `yaml:"type"`
+	Server            string                 `yaml:"server"`
+	Port              int                    `yaml:"port"`
+	Password          string                 `yaml:"password,omitempty"`
+	UUID              string                 `yaml:"uuid,omitempty"`
+	AlterId           int                    `yaml:"alterId,omitempty"`
+	Cipher            string                 `yaml:"cipher,omitempty"`
+	Method            string                 `yaml:"method,omitempty"`
+	UDP               bool                   `yaml:"udp,omitempty"`
+	TLS               bool                   `yaml:"tls,omitempty"`
+	SkipCertVerify    bool                   `yaml:"skip-cert-verify,omitempty"`
+	ServerName        string                 `yaml:"servername,omitempty"`
+	SNI               string                 `yaml:"sni,omitempty"`
+	Network           string                 `yaml:"network,omitempty"`
+	Plugin            string                 `yaml:"plugin,omitempty"`
+	PluginOpts        map[string]interface{} `yaml:"plugin-opts,omitempty"`
+	WSOpts            *WSOptions             `yaml:"ws-opts,omitempty"`
+	GrpcOpts          *GRPCOptions           `yaml:"grpc-opts,omitempty"`
+	H2Opts            *H2Options             `yaml:"h2-opts,omitempty"`
+	RealityOpts       *RealityOptions        `yaml:"reality-opts,omitempty"`
+	Flow              string                 `yaml:"flow,omitempty"`
+	ClientFingerprint string                 `yaml:"client-fingerprint,omitempty"`
+	Fingerprint       string                 `yaml:"fingerprint,omitempty"`
+	ALPN              []string               `yaml:"alpn,omitempty"`
 }
 
 type WSOptions struct {
@@ -128,6 +130,8 @@ func (p *Parser) parseURI(uri string) (ClashProxy, error) {
 		return p.parseVLESS(uri)
 	case strings.HasPrefix(uri, "hysteria2://") || strings.HasPrefix(uri, "hy2://"):
 		return p.parseHysteria2(uri)
+	case strings.HasPrefix(uri, "anytls://"):
+		return p.parseAnyTLS(uri)
 	default:
 		return proxy, fmt.Errorf("unsupported protocol: %s", uri)
 	}
@@ -502,6 +506,84 @@ func (p *Parser) parseHysteria2(uri string) (ClashProxy, error) {
 	}
 
 	return proxy, nil
+}
+
+func (p *Parser) parseAnyTLS(uri string) (ClashProxy, error) {
+	proxy := ClashProxy{
+		Type: "anytls",
+		TLS:  true,
+	}
+
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return proxy, fmt.Errorf("failed to parse anytls uri: %w", err)
+	}
+
+	if parsed.User != nil {
+		proxy.Password = parsed.User.Username()
+		if password, ok := parsed.User.Password(); ok && proxy.Password == "" {
+			proxy.Password = password
+		}
+	}
+
+	proxy.Server = parsed.Hostname()
+	if proxy.Server == "" {
+		return proxy, fmt.Errorf("invalid anytls format")
+	}
+
+	if port := parsed.Port(); port != "" {
+		parsedPort, err := strconv.Atoi(port)
+		if err != nil {
+			return proxy, fmt.Errorf("invalid anytls port: %w", err)
+		}
+		proxy.Port = parsedPort
+	}
+
+	query := parsed.Query()
+	if v := query.Get("sni"); v != "" {
+		proxy.ServerName = v
+	}
+	if v := query.Get("servername"); v != "" && proxy.ServerName == "" {
+		proxy.ServerName = v
+	}
+	if v := query.Get("insecure"); isTruthy(v) {
+		proxy.SkipCertVerify = true
+	}
+	if v := query.Get("allowInsecure"); isTruthy(v) {
+		proxy.SkipCertVerify = true
+	}
+	if v := query.Get("fp"); v != "" {
+		proxy.ClientFingerprint = v
+	}
+	if v := query.Get("client-fingerprint"); v != "" && proxy.ClientFingerprint == "" {
+		proxy.ClientFingerprint = v
+	}
+	if v := query.Get("alpn"); v != "" {
+		for _, entry := range strings.Split(v, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry != "" {
+				proxy.ALPN = append(proxy.ALPN, entry)
+			}
+		}
+	}
+
+	if fragment := parsed.Fragment; fragment != "" {
+		proxy.Name = decodeURIComponent(fragment)
+	}
+	if proxy.Name == "" {
+		proxy.Name = fmt.Sprintf("%s:%d", proxy.Server, proxy.Port)
+	}
+
+	return proxy, nil
+}
+
+func isTruthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func decodeURIComponent(s string) string {

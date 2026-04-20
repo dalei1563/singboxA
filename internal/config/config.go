@@ -70,18 +70,30 @@ type Subscription struct {
 	UpdateInterval       int    `yaml:"update_interval" json:"update_interval"`
 }
 
+type NodeQualityResult struct {
+	TCPLatency   int    `yaml:"tcp_latency" json:"tcp_latency"`
+	HTTPTTFB     int    `yaml:"http_ttfb" json:"http_ttfb"`
+	HTTPTotal    int    `yaml:"http_total" json:"http_total"`
+	SuccessRate  int    `yaml:"success_rate" json:"success_rate"`
+	SuccessCount int    `yaml:"success_count" json:"success_count"`
+	SampleCount  int    `yaml:"sample_count" json:"sample_count"`
+	Score        int    `yaml:"score" json:"score"`
+	TestedAt     string `yaml:"tested_at" json:"tested_at"`
+}
+
 type AppState struct {
-	Subscriptions           []Subscription `yaml:"subscriptions" json:"subscriptions"`
-	SelectedNode            string         `yaml:"selected_node" json:"selected_node"`
-	AppliedAutoNode         string         `yaml:"applied_auto_node" json:"applied_auto_node"`
-	RecommendedAutoNode     string         `yaml:"recommended_auto_node" json:"recommended_auto_node"`
-	ProxyMode               string         `yaml:"proxy_mode" json:"proxy_mode"` // global, rule, direct
-	CustomRules             []CustomRule   `yaml:"custom_rules" json:"custom_rules"`
-	BypassList              []BypassEntry  `yaml:"bypass_list" json:"bypass_list"`           // 完全绕过 TUN 的地址
-	AutoStart               bool           `yaml:"auto_start" json:"auto_start"`             // 启动时自动启动 sing-box
-	LastRuleUpdate          string         `yaml:"last_rule_update" json:"last_rule_update"` // 上次规则更新时间
-	NodeSelectionPreference string         `yaml:"node_selection_preference" json:"node_selection_preference"`
-	NodeTestResults         map[string]int `yaml:"node_test_results" json:"-"`
+	Subscriptions           []Subscription               `yaml:"subscriptions" json:"subscriptions"`
+	SelectedNode            string                       `yaml:"selected_node" json:"selected_node"`
+	AppliedAutoNode         string                       `yaml:"applied_auto_node" json:"applied_auto_node"`
+	RecommendedAutoNode     string                       `yaml:"recommended_auto_node" json:"recommended_auto_node"`
+	ProxyMode               string                       `yaml:"proxy_mode" json:"proxy_mode"` // global, rule, direct
+	CustomRules             []CustomRule                 `yaml:"custom_rules" json:"custom_rules"`
+	BypassList              []BypassEntry                `yaml:"bypass_list" json:"bypass_list"`           // 完全绕过 TUN 的地址
+	AutoStart               bool                         `yaml:"auto_start" json:"auto_start"`             // 启动时自动启动 sing-box
+	LastRuleUpdate          string                       `yaml:"last_rule_update" json:"last_rule_update"` // 上次规则更新时间
+	NodeSelectionPreference string                       `yaml:"node_selection_preference" json:"node_selection_preference"`
+	NodeTestResults         map[string]int               `yaml:"node_test_results" json:"-"`
+	NodeQualityResults      map[string]NodeQualityResult `yaml:"node_quality_results" json:"-"`
 }
 
 // BypassEntry 表示一个需要完全绕过 TUN 的地址
@@ -191,6 +203,9 @@ func (m *Manager) loadState() error {
 	if state.NodeTestResults == nil {
 		state.NodeTestResults = make(map[string]int)
 	}
+	if state.NodeQualityResults == nil {
+		state.NodeQualityResults = make(map[string]NodeQualityResult)
+	}
 	m.normalizeSubscriptionsLocked(&state)
 	m.state = &state
 	return nil
@@ -238,6 +253,7 @@ func (m *Manager) defaultState() *AppState {
 		BypassList:              []BypassEntry{},
 		NodeSelectionPreference: "auto",
 		NodeTestResults:         make(map[string]int),
+		NodeQualityResults:      make(map[string]NodeQualityResult),
 	}
 }
 
@@ -405,6 +421,17 @@ func (m *Manager) GetNodeTestResults() map[string]int {
 	return results
 }
 
+func (m *Manager) GetNodeQualityResults() map[string]NodeQualityResult {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	results := make(map[string]NodeQualityResult, len(m.state.NodeQualityResults))
+	for key, value := range m.state.NodeQualityResults {
+		results[key] = value
+	}
+	return results
+}
+
 func (m *Manager) SetNodeTestResult(key string, latency int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -427,10 +454,33 @@ func (m *Manager) ReplaceNodeTestResults(results map[string]int) error {
 	return m.saveState()
 }
 
+func (m *Manager) SetNodeQualityResult(key string, result NodeQualityResult) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state.NodeQualityResults == nil {
+		m.state.NodeQualityResults = make(map[string]NodeQualityResult)
+	}
+	m.state.NodeQualityResults[key] = result
+	return m.saveState()
+}
+
+func (m *Manager) ReplaceNodeQualityResults(results map[string]NodeQualityResult) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.state.NodeQualityResults = make(map[string]NodeQualityResult, len(results))
+	for key, value := range results {
+		m.state.NodeQualityResults[key] = value
+	}
+	return m.saveState()
+}
+
 func (m *Manager) ClearNodeTestResults() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.state.NodeTestResults = make(map[string]int)
+	m.state.NodeQualityResults = make(map[string]NodeQualityResult)
 	return m.saveState()
 }
 

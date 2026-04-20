@@ -1,15 +1,21 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +39,8 @@ type Handlers struct {
 	testing      bool
 	pendingRun   bool
 	pendingNodes []singbox.Outbound
+	testTotal    int
+	testDone     int
 }
 
 func NewHandlers() *Handlers {
@@ -53,6 +61,11 @@ type Response struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
+}
+
+type nodeTestSnapshot struct {
+	Latency map[string]int
+	Quality map[string]config.NodeQualityResult
 }
 
 type ConfigPayload struct {
@@ -94,6 +107,9 @@ func (h *Handlers) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"version":                   strings.TrimSpace(version),
 		"node_count":                len(nodes),
 		"node_testing":              h.isNodeTesting(),
+		"testing_active":            h.isNodeTesting(),
+		"testing_total":             h.getNodeTestingTotal(),
+		"testing_completed":         h.getNodeTestingCompleted(),
 		"selected_node":             resolved.LogicalNode,
 		"selected_mode":             resolved.SelectedMode,
 		"effective_node":            resolved.EffectiveNode,
@@ -313,15 +329,23 @@ func (h *Handlers) RefreshSubscriptions(w http.ResponseWriter, r *http.Request) 
 // Node handlers
 
 type NodeInfo struct {
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	Server        string `json:"server"`
-	Port          int    `json:"port"`
-	Selected      bool   `json:"selected"`
-	Latency       int    `json:"latency,omitempty"`
-	EffectiveNode string `json:"effective_node,omitempty"`
-	Recommended   string `json:"recommended_node,omitempty"`
-	Virtual       bool   `json:"virtual,omitempty"`
+	Name                   string   `json:"name"`
+	Type                   string   `json:"type"`
+	Server                 string   `json:"server"`
+	Port                   int      `json:"port"`
+	SubscriptionNames      []string `json:"subscription_names,omitempty"`
+	Selected               bool     `json:"selected"`
+	Latency                int      `json:"latency,omitempty"`
+	HTTPTTFB               int      `json:"http_ttfb,omitempty"`
+	SuccessRate            int      `json:"success_rate,omitempty"`
+	SuccessCount           int      `json:"success_count,omitempty"`
+	SampleCount            int      `json:"sample_count,omitempty"`
+	QualityTestedAt        string   `json:"quality_tested_at,omitempty"`
+	EffectiveNode          string   `json:"effective_node,omitempty"`
+	Recommended            string   `json:"recommended_node,omitempty"`
+	RecommendedHTTPTTFB    int      `json:"recommended_http_ttfb,omitempty"`
+	RecommendedSuccessRate int      `json:"recommended_success_rate,omitempty"`
+	Virtual                bool     `json:"virtual,omitempty"`
 }
 
 func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
@@ -333,11 +357,12 @@ func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
 	nodes := h.updater.GetNodes()
 	state := h.cfgMgr.GetState()
 	resolved := nodeselector.Resolve(nodes, state)
-	testResults := h.cfgMgr.GetNodeTestResults()
+	qualityResults := h.cfgMgr.GetNodeQualityResults()
+	nodeSources := h.updater.GetNodeSources()
 	autoEffective := state.AppliedAutoNode
 	autoRecommended := state.RecommendedAutoNode
 	if autoRecommended == "" {
-		autoRecommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+		autoRecommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
 	}
 	if autoEffective == "" || !nodeExistsByTag(nodes, autoEffective) {
 		autoEffective = autoRecommended
@@ -356,22 +381,33 @@ func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
 		if node.Tag != autoEffective {
 			continue
 		}
-		if latency, ok := testResults[nodeselector.NodeKey(node)]; ok {
-			autoNode.Latency = latency
+		if quality, ok := qualityResults[nodeselector.NodeKey(node)]; ok {
+			applyQualityToNodeInfo(&autoNode, quality)
+		}
+		break
+	}
+	for _, node := range nodes {
+		if node.Tag != autoRecommended {
+			continue
+		}
+		if quality, ok := qualityResults[nodeselector.NodeKey(node)]; ok {
+			autoNode.RecommendedHTTPTTFB = normalizedHTTPLatency(quality.HTTPTTFB)
+			autoNode.RecommendedSuccessRate = quality.SuccessRate
 		}
 		break
 	}
 	nodeInfos = append(nodeInfos, autoNode)
 	for _, node := range nodes {
 		nodeInfo := NodeInfo{
-			Name:     node.Tag,
-			Type:     node.Type,
-			Server:   node.Server,
-			Port:     node.ServerPort,
-			Selected: resolved.SelectedMode == "manual" && node.Tag == resolved.LogicalNode,
+			Name:              node.Tag,
+			Type:              node.Type,
+			Server:            node.Server,
+			Port:              node.ServerPort,
+			SubscriptionNames: nodeSources[nodeselector.NodeKey(node)],
+			Selected:          resolved.SelectedMode == "manual" && node.Tag == resolved.LogicalNode,
 		}
-		if latency, ok := testResults[nodeselector.NodeKey(node)]; ok {
-			nodeInfo.Latency = latency
+		if quality, ok := qualityResults[nodeselector.NodeKey(node)]; ok {
+			applyQualityToNodeInfo(&nodeInfo, quality)
 		}
 		nodeInfos = append(nodeInfos, nodeInfo)
 	}
@@ -496,26 +532,27 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Test latency
-		latency, err := h.testNodeLatency(targetNode.Server, targetNode.ServerPort)
+		result, err := h.runSingleNodeTest(*targetNode)
 		if err != nil {
-			_ = h.cfgMgr.SetNodeTestResult(nodeselector.NodeKey(*targetNode), -1)
 			h.sendJSON(w, map[string]interface{}{
-				"node":    nodeName,
-				"latency": -1,
-				"error":   err.Error(),
+				"node":          nodeName,
+				"latency":       result.HTTPTTFB,
+				"http_ttfb":     result.HTTPTTFB,
+				"success_rate":  result.SuccessRate,
+				"success_count": result.SuccessCount,
+				"sample_count":  result.SampleCount,
+				"error":         err.Error(),
 			})
 			return
 		}
 
-		if err := h.cfgMgr.SetNodeTestResult(nodeselector.NodeKey(*targetNode), latency); err != nil {
-			h.sendError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-
 		h.sendJSON(w, map[string]interface{}{
-			"node":    nodeName,
-			"latency": latency,
+			"node":          nodeName,
+			"latency":       result.HTTPTTFB,
+			"http_ttfb":     result.HTTPTTFB,
+			"success_rate":  result.SuccessRate,
+			"success_count": result.SuccessCount,
+			"sample_count":  result.SampleCount,
 		})
 
 	default:
@@ -549,6 +586,293 @@ func (h *Handlers) testNodeLatency(server string, port int) (int, error) {
 	}
 	conn.Close()
 	return int(time.Since(start).Milliseconds()), nil
+}
+
+func (h *Handlers) runSingleNodeTest(node singbox.Outbound) (config.NodeQualityResult, error) {
+	result, err := h.testNodeQuality(node)
+	key := nodeselector.NodeKey(node)
+	if setErr := h.cfgMgr.SetNodeTestResult(key, result.HTTPTTFB); setErr != nil {
+		return result, setErr
+	}
+	if setErr := h.cfgMgr.SetNodeQualityResult(key, result); setErr != nil {
+		return result, setErr
+	}
+	if reconcileErr := h.reconcileAutoSelectionAfterTesting(h.updater.GetNodes()); reconcileErr != nil {
+		return result, reconcileErr
+	}
+	return result, err
+}
+
+func (h *Handlers) testNodeQuality(node singbox.Outbound) (config.NodeQualityResult, error) {
+	result := config.NodeQualityResult{
+		TCPLatency:  -1,
+		HTTPTTFB:    -1,
+		HTTPTotal:   -1,
+		SampleCount: 3,
+		TestedAt:    time.Now().Format(time.RFC3339),
+	}
+
+	tcpLatency, tcpErr := h.testNodeLatency(node.Server, node.ServerPort)
+	result.TCPLatency = tcpLatency
+	if tcpErr != nil {
+		result.Score = 0
+		return result, tcpErr
+	}
+
+	proxyAddr, cleanup, err := h.startQualityTestProxy(node)
+	if err != nil {
+		result.Score = calculateQualityScore(result)
+		return result, err
+	}
+	defer cleanup()
+
+	var ttfbSamples []int
+	var totalSamples []int
+	var firstErr error
+	for i := 0; i < result.SampleCount; i++ {
+		ttfb, total, sampleErr := h.measureHTTPQuality(proxyAddr)
+		if sampleErr != nil {
+			if firstErr == nil {
+				firstErr = sampleErr
+			}
+			continue
+		}
+		result.SuccessCount++
+		if ttfb > 999 {
+			result.HTTPTTFB = 999
+			result.HTTPTotal = 999
+			result.SampleCount = i + 1
+			result.SuccessRate = result.SuccessCount * 100 / result.SampleCount
+			result.Score = calculateQualityScore(result)
+			return result, nil
+		}
+		ttfbSamples = append(ttfbSamples, ttfb)
+		totalSamples = append(totalSamples, total)
+	}
+
+	result.SuccessRate = result.SuccessCount * 100 / result.SampleCount
+	if result.SuccessCount > 0 {
+		result.HTTPTTFB = medianInt(ttfbSamples)
+		result.HTTPTotal = medianInt(totalSamples)
+	}
+	result.Score = calculateQualityScore(result)
+
+	if result.SuccessCount == 0 {
+		if firstErr != nil {
+			return result, firstErr
+		}
+		return result, fmt.Errorf("quality test failed")
+	}
+	return result, nil
+}
+
+func (h *Handlers) startQualityTestProxy(node singbox.Outbound) (string, func(), error) {
+	cfg := h.cfgMgr.GetConfig()
+	port, err := reserveLocalPort()
+	if err != nil {
+		return "", nil, err
+	}
+
+	tempDir, err := os.MkdirTemp("", "singboxA-quality-*")
+	if err != nil {
+		return "", nil, err
+	}
+
+	configPath := filepath.Join(tempDir, "config.json")
+	testConfig := &singbox.SingBoxConfig{
+		Log: &singbox.LogConfig{Level: "error"},
+		Inbounds: []singbox.Inbound{{
+			Type:       "http",
+			Tag:        "http-in",
+			Listen:     "127.0.0.1",
+			ListenPort: port,
+		}},
+		Outbounds: []singbox.Outbound{
+			node,
+			{Type: "direct", Tag: "direct"},
+		},
+		Route: &singbox.RouteConfig{
+			Final:               node.Tag,
+			AutoDetectInterface: true,
+		},
+	}
+
+	data, err := json.Marshal(testConfig)
+	if err != nil {
+		_ = os.RemoveAll(tempDir)
+		return "", nil, err
+	}
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		_ = os.RemoveAll(tempDir)
+		return "", nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	cmd := exec.CommandContext(ctx, cfg.SingBox.BinaryPath, "run", "-c", configPath)
+	var stderr bytes.Buffer
+	cmd.Stdout = io.Discard
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		cancel()
+		_ = os.RemoveAll(tempDir)
+		return "", nil, fmt.Errorf("failed to start test proxy: %w", err)
+	}
+
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+	}()
+
+	addr := fmt.Sprintf("http://127.0.0.1:%d", port)
+	if err := waitForLocalPort(port, waitCh); err != nil {
+		cancel()
+		_ = os.RemoveAll(tempDir)
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return "", nil, fmt.Errorf("%w: %s", err, msg)
+		}
+		return "", nil, err
+	}
+
+	cleanup := func() {
+		cancel()
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+		_ = os.RemoveAll(tempDir)
+	}
+	return addr, cleanup, nil
+}
+
+func (h *Handlers) measureHTTPQuality(proxyAddr string) (int, int, error) {
+	proxyURL, err := url.Parse(proxyAddr)
+	if err != nil {
+		return -1, -1, err
+	}
+
+	var firstByte time.Time
+	transport := &http.Transport{
+		Proxy:               http.ProxyURL(proxyURL),
+		DisableKeepAlives:   true,
+		ForceAttemptHTTP2:   false,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+
+	req, err := http.NewRequest("GET", "https://cp.cloudflare.com/generate_204", nil)
+	if err != nil {
+		return -1, -1, err
+	}
+	start := time.Now()
+	trace := &httptrace.ClientTrace{
+		GotFirstResponseByte: func() {
+			firstByte = time.Now()
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return -1, -1, err
+	}
+	defer resp.Body.Close()
+	_, readErr := io.Copy(io.Discard, resp.Body)
+	if readErr != nil {
+		return -1, -1, readErr
+	}
+	total := int(time.Since(start).Milliseconds())
+	if firstByte.IsZero() {
+		firstByte = time.Now()
+	}
+	ttfb := int(firstByte.Sub(start).Milliseconds())
+	if resp.StatusCode >= 500 {
+		return -1, -1, fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+	return ttfb, total, nil
+}
+
+func reserveLocalPort() (int, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+	if addr, ok := listener.Addr().(*net.TCPAddr); ok {
+		return addr.Port, nil
+	}
+	return 0, fmt.Errorf("failed to reserve local port")
+}
+
+func waitForLocalPort(port int, waitCh <-chan error) error {
+	address := fmt.Sprintf("127.0.0.1:%d", port)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		select {
+		case waitErr := <-waitCh:
+			if waitErr != nil {
+				return waitErr
+			}
+			return fmt.Errorf("test proxy exited before ready")
+		default:
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("test proxy did not become ready")
+}
+
+func medianInt(values []int) int {
+	if len(values) == 0 {
+		return -1
+	}
+	sorted := append([]int(nil), values...)
+	sort.Ints(sorted)
+	return sorted[len(sorted)/2]
+}
+
+func calculateQualityScore(result config.NodeQualityResult) int {
+	if result.SuccessCount == 0 {
+		return 0
+	}
+	score := result.SuccessRate * 10
+	if result.HTTPTTFB > 0 {
+		score += maxInt(0, 4000-result.HTTPTTFB) / 40
+	}
+	return score
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func applyQualityToNodeInfo(nodeInfo *NodeInfo, quality config.NodeQualityResult) {
+	nodeInfo.Latency = normalizedHTTPLatency(quality.HTTPTTFB)
+	nodeInfo.HTTPTTFB = normalizedHTTPLatency(quality.HTTPTTFB)
+	nodeInfo.SuccessRate = quality.SuccessRate
+	nodeInfo.SuccessCount = quality.SuccessCount
+	nodeInfo.SampleCount = quality.SampleCount
+	nodeInfo.QualityTestedAt = quality.TestedAt
+}
+
+func normalizedHTTPLatency(latency int) int {
+	if latency < 0 {
+		return latency
+	}
+	if latency > 999 {
+		return 999
+	}
+	return latency
 }
 
 // Config handlers
@@ -987,7 +1311,7 @@ func (h *Handlers) normalizeSelectionStateWithNodes(nodes []singbox.Outbound) (b
 
 func (h *Handlers) ensureAutoSelectionLocked(nodes []singbox.Outbound) error {
 	state := h.cfgMgr.GetState()
-	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
 	applied := state.AppliedAutoNode
 	if applied == "" || !nodeExistsByTag(nodes, applied) {
 		applied = recommended
@@ -1000,7 +1324,7 @@ func (h *Handlers) ensureAutoSelectionLocked(nodes []singbox.Outbound) error {
 
 func (h *Handlers) resetAutoSelectionToRecommended(nodes []singbox.Outbound) error {
 	state := h.cfgMgr.GetState()
-	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
 	if recommended == "" {
 		recommended = state.AppliedAutoNode
 	}
@@ -1014,7 +1338,7 @@ func (h *Handlers) applyRecommendedAutoSelection(nodes []singbox.Outbound) error
 	state := h.cfgMgr.GetState()
 	recommended := state.RecommendedAutoNode
 	if recommended == "" || !nodeExistsByTag(nodes, recommended) {
-		recommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+		recommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
 	}
 	if recommended == "" {
 		return fmt.Errorf("no recommended node available")
@@ -1106,24 +1430,48 @@ func (h *Handlers) isNodeTesting() bool {
 	return h.testing || h.pendingRun
 }
 
+func (h *Handlers) getNodeTestingTotal() int {
+	h.testMu.Lock()
+	defer h.testMu.Unlock()
+	return h.testTotal
+}
+
+func (h *Handlers) getNodeTestingCompleted() int {
+	h.testMu.Lock()
+	defer h.testMu.Unlock()
+	return h.testDone
+}
+
 func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
+	realNodes := make([]singbox.Outbound, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Tag == "" || node.Server == "" || node.ServerPort <= 0 {
+			continue
+		}
+		realNodes = append(realNodes, node)
+	}
+
 	h.testMu.Lock()
 	if h.testing {
 		h.pendingRun = true
-		h.pendingNodes = append([]singbox.Outbound(nil), nodes...)
+		h.pendingNodes = append([]singbox.Outbound(nil), realNodes...)
 		h.testMu.Unlock()
 		return
 	}
 	h.testing = true
+	h.testTotal = len(realNodes)
+	h.testDone = 0
 	h.testMu.Unlock()
 
 	go func() {
-		currentNodes := append([]singbox.Outbound(nil), nodes...)
+		currentNodes := append([]singbox.Outbound(nil), realNodes...)
 		for {
 			if len(currentNodes) > 0 {
 				results := h.runNodeTests(currentNodes)
-				if err := h.cfgMgr.ReplaceNodeTestResults(results); err != nil {
+				if err := h.cfgMgr.ReplaceNodeTestResults(results.Latency); err != nil {
 					log.Printf("Failed to persist node test results: %v", err)
+				} else if err := h.cfgMgr.ReplaceNodeQualityResults(results.Quality); err != nil {
+					log.Printf("Failed to persist node quality results: %v", err)
 				} else if err := h.reconcileAutoSelectionAfterTesting(currentNodes); err != nil {
 					log.Printf("Failed to reconcile auto selection after testing: %v", err)
 				}
@@ -1133,10 +1481,13 @@ func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
 			h.testMu.Lock()
 			if !h.pendingRun {
 				h.testing = false
+				h.testDone = h.testTotal
 				h.testMu.Unlock()
 				return
 			}
 			currentNodes = append([]singbox.Outbound(nil), h.pendingNodes...)
+			h.testTotal = len(currentNodes)
+			h.testDone = 0
 			h.pendingRun = false
 			h.pendingNodes = nil
 			h.testMu.Unlock()
@@ -1144,8 +1495,11 @@ func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
 	}()
 }
 
-func (h *Handlers) runNodeTests(nodes []singbox.Outbound) map[string]int {
-	results := make(map[string]int, len(nodes))
+func (h *Handlers) runNodeTests(nodes []singbox.Outbound) nodeTestSnapshot {
+	results := nodeTestSnapshot{
+		Latency: make(map[string]int, len(nodes)),
+		Quality: make(map[string]config.NodeQualityResult, len(nodes)),
+	}
 	const workerCount = 5
 	nodeChan := make(chan singbox.Outbound)
 	var wg sync.WaitGroup
@@ -1156,13 +1510,14 @@ func (h *Handlers) runNodeTests(nodes []singbox.Outbound) map[string]int {
 		go func() {
 			defer wg.Done()
 			for node := range nodeChan {
-				latency, err := h.testNodeLatency(node.Server, node.ServerPort)
-				if err != nil {
-					latency = -1
-				}
+				quality, _ := h.testNodeQuality(node)
 				resultsMu.Lock()
-				results[nodeselector.NodeKey(node)] = latency
+				results.Latency[nodeselector.NodeKey(node)] = quality.HTTPTTFB
+				results.Quality[nodeselector.NodeKey(node)] = quality
 				resultsMu.Unlock()
+				h.testMu.Lock()
+				h.testDone++
+				h.testMu.Unlock()
 			}
 		}()
 	}
@@ -1177,7 +1532,7 @@ func (h *Handlers) runNodeTests(nodes []singbox.Outbound) map[string]int {
 
 func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) error {
 	state := h.cfgMgr.GetState()
-	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults)
+	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
 	applied := state.AppliedAutoNode
 	switchTarget := ""
 
@@ -1192,7 +1547,10 @@ func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) 
 		default:
 			node, ok := findNodeByTag(nodes, applied)
 			if ok {
-				if latency, exists := state.NodeTestResults[nodeselector.NodeKey(node)]; exists && latency < 0 && recommended != "" && recommended != applied {
+				key := nodeselector.NodeKey(node)
+				if quality, exists := state.NodeQualityResults[key]; exists && quality.TestedAt != "" && quality.SuccessCount == 0 && recommended != "" && recommended != applied {
+					switchTarget = recommended
+				} else if latency, exists := state.NodeTestResults[key]; exists && latency < 0 && recommended != "" && recommended != applied {
 					switchTarget = recommended
 				}
 			}

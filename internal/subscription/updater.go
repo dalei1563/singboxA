@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"singboxA/internal/config"
+	"singboxA/internal/nodeselector"
 	"singboxA/internal/singbox"
 
 	"gopkg.in/yaml.v3"
@@ -29,17 +30,18 @@ const (
 )
 
 type Updater struct {
-	mu         sync.Mutex
-	dataDir    string
-	parser     *Parser
-	converter  *Converter
-	httpClient *http.Client
-	nodes      []singbox.Outbound
-	nodesMu    sync.RWMutex
-	lastUpdate time.Time
-	stopChan   chan struct{}
-	running    bool
-	onRefresh  func(RefreshResult)
+	mu          sync.Mutex
+	dataDir     string
+	parser      *Parser
+	converter   *Converter
+	httpClient  *http.Client
+	nodes       []singbox.Outbound
+	nodeSources map[string][]string
+	nodesMu     sync.RWMutex
+	lastUpdate  time.Time
+	stopChan    chan struct{}
+	running     bool
+	onRefresh   func(RefreshResult)
 }
 
 type CachedSubscription struct {
@@ -70,7 +72,8 @@ func GetUpdater() *Updater {
 			httpClient: &http.Client{
 				Timeout: HTTPTimeout,
 			},
-			nodes: make([]singbox.Outbound, 0),
+			nodes:       make([]singbox.Outbound, 0),
+			nodeSources: make(map[string][]string),
 		}
 	})
 	return updaterInstance
@@ -317,6 +320,17 @@ func (u *Updater) GetLastUpdate() time.Time {
 	return u.lastUpdate
 }
 
+func (u *Updater) GetNodeSources() map[string][]string {
+	u.nodesMu.RLock()
+	defer u.nodesMu.RUnlock()
+
+	result := make(map[string][]string, len(u.nodeSources))
+	for key, value := range u.nodeSources {
+		result[key] = append([]string(nil), value...)
+	}
+	return result
+}
+
 func (u *Updater) saveCachedSubscription(cached CachedSubscription) error {
 	cacheDir := filepath.Join(u.dataDir, "subscriptions")
 	if err := os.MkdirAll(cacheDir, CacheDirPerm); err != nil {
@@ -343,6 +357,7 @@ func (u *Updater) loadCachedNodes() error {
 	}
 
 	var allProxies []ClashProxy
+	nodeSources := make(map[string][]string)
 
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
@@ -359,11 +374,33 @@ func (u *Updater) loadCachedNodes() error {
 			continue
 		}
 
-		allProxies = append(allProxies, cached.Proxies...)
+		for _, proxy := range cached.Proxies {
+			allProxies = append(allProxies, proxy)
+			sourceKey := proxySourceKey(proxy)
+			if sourceKey == "" {
+				continue
+			}
+			if !containsSourceName(nodeSources[sourceKey], cached.Name) {
+				nodeSources[sourceKey] = append(nodeSources[sourceKey], cached.Name)
+			}
+		}
+	}
+
+	converted := u.converter.Convert(allProxies)
+	resolvedSources := make(map[string][]string, len(converted))
+	for _, node := range converted {
+		sourceKey := outboundSourceKey(node)
+		if sourceKey == "" {
+			continue
+		}
+		if sources, ok := nodeSources[sourceKey]; ok {
+			resolvedSources[nodeselector.NodeKey(node)] = append([]string(nil), sources...)
+		}
 	}
 
 	u.nodesMu.Lock()
-	u.nodes = u.converter.Convert(allProxies)
+	u.nodes = converted
+	u.nodeSources = resolvedSources
 	u.nodesMu.Unlock()
 
 	return nil
@@ -399,4 +436,27 @@ func GenerateID() string {
 		return hex.EncodeToString(hash[:8])
 	}
 	return hex.EncodeToString(b[:8])
+}
+
+func proxySourceKey(proxy ClashProxy) string {
+	if proxy.Name == "" || proxy.Type == "" || proxy.Server == "" || proxy.Port <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%d", proxy.Name, proxy.Type, proxy.Server, proxy.Port)
+}
+
+func outboundSourceKey(node singbox.Outbound) string {
+	if node.Tag == "" || node.Type == "" || node.Server == "" || node.ServerPort <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%d", node.Tag, node.Type, node.Server, node.ServerPort)
+}
+
+func containsSourceName(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

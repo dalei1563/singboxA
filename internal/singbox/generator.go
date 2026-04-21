@@ -499,6 +499,33 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 		route.Final = "proxy"
 	}
 
+	customRules := make([]RouteRule, 0, len(state.CustomRules))
+	for _, rule := range state.CustomRules {
+		r := RouteRule{
+			Action:   "route",
+			Outbound: rule.Outbound,
+		}
+		// Handle block -> reject action
+		if rule.Outbound == "block" {
+			r.Action = "reject"
+			r.Outbound = ""
+		}
+
+		switch rule.Type {
+		case "domain":
+			r.Domain = []string{rule.Value}
+		case "domain_suffix":
+			r.DomainSuffix = []string{rule.Value}
+		case "ip_cidr":
+			r.IPCIDR = []string{rule.Value}
+		case "geosite":
+			r.RuleSet = []string{"geosite-" + rule.Value}
+		case "geoip":
+			r.RuleSet = []string{"geoip-" + rule.Value}
+		}
+		customRules = append(customRules, r)
+	}
+
 	// Build rules with action field (sing-box 1.12+ format)
 	rules := []RouteRule{
 		// Sniff rule (required for protocol detection)
@@ -542,14 +569,20 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 			RuleSet: []string{"geosite-category-ads-all"},
 			Action:  "reject",
 		},
+	}
+
+	// User-defined rules should take priority over the built-in direct/proxy split.
+	rules = append(rules, customRules...)
+
+	rules = append(rules,
 		// Private networks direct
-		{
+		RouteRule{
 			IPIsPrivate: true,
 			Action:      "route",
 			Outbound:    "direct",
 		},
 		// China direct using comprehensive domain lists
-		{
+		RouteRule{
 			RuleSet: []string{
 				"geosite-cn",
 				"china-domains",
@@ -560,39 +593,12 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 			Outbound: "direct",
 		},
 		// China direct using BGP-based IP list (more accurate than MaxMind geoip)
-		{
+		RouteRule{
 			RuleSet:  []string{"chnroutes-bgp"},
 			Action:   "route",
 			Outbound: "direct",
 		},
-	}
-
-	// Add custom rules
-	for _, rule := range state.CustomRules {
-		r := RouteRule{
-			Action:   "route",
-			Outbound: rule.Outbound,
-		}
-		// Handle block -> reject action
-		if rule.Outbound == "block" {
-			r.Action = "reject"
-			r.Outbound = ""
-		}
-
-		switch rule.Type {
-		case "domain":
-			r.Domain = []string{rule.Value}
-		case "domain_suffix":
-			r.DomainSuffix = []string{rule.Value}
-		case "ip_cidr":
-			r.IPCIDR = []string{rule.Value}
-		case "geosite":
-			r.RuleSet = []string{"geosite-" + rule.Value}
-		case "geoip":
-			r.RuleSet = []string{"geoip-" + rule.Value}
-		}
-		rules = append(rules, r)
-	}
+	)
 
 	route.Rules = rules
 

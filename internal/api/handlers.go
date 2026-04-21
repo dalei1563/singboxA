@@ -435,6 +435,9 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		nodes := h.updater.GetNodes()
+		beforeResolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
+
 		selectedNode := nodeName
 		if selectedNode != nodeselector.AutoNodeTag {
 			if !h.nodeExists(selectedNode) {
@@ -448,33 +451,31 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if selectedNode == nodeselector.AutoNodeTag {
-			if err := h.ensureAutoSelectionLocked(h.updater.GetNodes()); err != nil {
+			if err := h.ensureAutoSelectionLocked(nodes); err != nil {
 				h.sendError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		} else {
-			if err := h.resetAutoSelectionToRecommended(h.updater.GetNodes()); err != nil {
+			if err := h.resetAutoSelectionToRecommended(nodes); err != nil {
 				h.sendError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
+
+		afterResolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
+		clearCache := beforeResolved.EffectiveNode != afterResolved.EffectiveNode && afterResolved.EffectiveNode != ""
 
 		// Regenerate config if running
-		if h.processMgr.GetState() == singbox.StateRunning {
-			if err := h.generateConfig(); err != nil {
-				h.sendError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			h.processMgr.Restart()
+		if err := h.restartRunningService(clearCache); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 
-		nodes := h.updater.GetNodes()
-		resolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
 		h.sendJSON(w, map[string]string{
-			"selected":         resolved.LogicalNode,
-			"selected_mode":    resolved.SelectedMode,
-			"effective_node":   resolved.EffectiveNode,
-			"recommended_node": resolved.Recommended,
+			"selected":         afterResolved.LogicalNode,
+			"selected_mode":    afterResolved.SelectedMode,
+			"effective_node":   afterResolved.EffectiveNode,
+			"recommended_node": afterResolved.Recommended,
 		})
 
 	case "apply-recommended":
@@ -488,28 +489,25 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 		}
 
 		nodes := h.updater.GetNodes()
+		beforeResolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
 		if err := h.applyRecommendedAutoSelection(nodes); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		if h.processMgr.GetState() == singbox.StateRunning {
-			if err := h.generateConfig(); err != nil {
-				h.sendError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			if err := h.processMgr.Restart(); err != nil {
-				h.sendError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
+		afterResolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
+		clearCache := beforeResolved.EffectiveNode != afterResolved.EffectiveNode && afterResolved.EffectiveNode != ""
+
+		if err := h.restartRunningService(clearCache); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 
-		resolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
 		h.sendJSON(w, map[string]string{
-			"selected":         resolved.LogicalNode,
-			"selected_mode":    resolved.SelectedMode,
-			"effective_node":   resolved.EffectiveNode,
-			"recommended_node": resolved.Recommended,
+			"selected":         afterResolved.LogicalNode,
+			"selected_mode":    afterResolved.SelectedMode,
+			"effective_node":   afterResolved.EffectiveNode,
+			"recommended_node": afterResolved.Recommended,
 		})
 
 	case "test":
@@ -1242,11 +1240,7 @@ func (h *Handlers) ClearCache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := h.cfgMgr.GetConfig()
-	cachePath := cfg.SingBox.ConfigPath
-	// Cache file is in the same directory as config, named cache.db
-	cacheDir := cachePath[:len(cachePath)-len("config.json")]
-	cacheFile := cacheDir + "cache.db"
+	cacheFile := h.cacheFilePath()
 
 	// Stop sing-box first
 	wasRunning := h.processMgr.GetStatus().State == "running"
@@ -1279,6 +1273,45 @@ func (h *Handlers) ClearCache(w http.ResponseWriter, r *http.Request) {
 }
 
 // Helper functions
+
+func (h *Handlers) cacheFilePath() string {
+	cfg := h.cfgMgr.GetConfig()
+	cachePath := cfg.SingBox.ConfigPath
+	cacheDir := cachePath[:len(cachePath)-len("config.json")]
+	return cacheDir + "cache.db"
+}
+
+func (h *Handlers) clearDNSCacheFile() error {
+	cacheFile := h.cacheFilePath()
+	if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (h *Handlers) restartRunningService(clearCache bool) error {
+	if h.processMgr.GetState() != singbox.StateRunning {
+		return nil
+	}
+
+	if clearCache {
+		if err := h.processMgr.Stop(); err != nil {
+			return err
+		}
+		if err := h.clearDNSCacheFile(); err != nil {
+			return err
+		}
+		if err := h.generateConfig(); err != nil {
+			return err
+		}
+		return h.processMgr.Start()
+	}
+
+	if err := h.generateConfig(); err != nil {
+		return err
+	}
+	return h.processMgr.Restart()
+}
 
 func (h *Handlers) generateConfig() error {
 	nodes := h.updater.GetNodes()
@@ -1559,6 +1592,7 @@ func (h *Handlers) runNodeTests(nodes []singbox.Outbound) nodeTestSnapshot {
 
 func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) error {
 	state := h.cfgMgr.GetState()
+	beforeResolved := nodeselector.Resolve(nodes, state)
 	recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
 	applied := state.AppliedAutoNode
 	switchTarget := ""
@@ -1597,11 +1631,9 @@ func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) 
 	if switchTarget == "" || h.processMgr.GetState() != singbox.StateRunning {
 		return nil
 	}
-
-	if err := h.generateConfig(); err != nil {
-		return err
-	}
-	return h.processMgr.Restart()
+	afterResolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
+	clearCache := beforeResolved.EffectiveNode != afterResolved.EffectiveNode && afterResolved.EffectiveNode != ""
+	return h.restartRunningService(clearCache)
 }
 
 // Bypass handlers

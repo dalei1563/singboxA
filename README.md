@@ -14,6 +14,7 @@
 - 节点测速与质量检测
 - 规则模式 / 全局模式 / 直连模式
 - DNS 缓存清理与运行状态查看
+![singboxA 首页图片](./readme_png/singboxA-page1.png)
 
 ## 环境要求
 

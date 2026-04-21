@@ -381,6 +381,7 @@ func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
 		if node.Tag != autoEffective {
 			continue
 		}
+		autoNode.SubscriptionNames = append([]string(nil), nodeSources[nodeselector.NodeKey(node)]...)
 		if quality, ok := qualityResults[nodeselector.NodeKey(node)]; ok {
 			applyQualityToNodeInfo(&autoNode, quality)
 		}
@@ -516,6 +517,12 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("Node test panic for %s: %v", nodeName, rec)
+				h.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Node test failed: %v", rec))
+			}
+		}()
 
 		// Find node
 		nodes := h.updater.GetNodes()
@@ -678,9 +685,28 @@ func (h *Handlers) startQualityTestProxy(node singbox.Outbound) (string, func(),
 		return "", nil, err
 	}
 
+	dnsServer := "223.5.5.5"
+	if len(cfg.DNS.DomesticServers) > 0 && strings.TrimSpace(cfg.DNS.DomesticServers[0]) != "" {
+		dnsServer = strings.TrimSpace(cfg.DNS.DomesticServers[0])
+	}
+
 	configPath := filepath.Join(tempDir, "config.json")
 	testConfig := &singbox.SingBoxConfig{
 		Log: &singbox.LogConfig{Level: "error"},
+		DNS: &singbox.DNSConfig{
+			Servers: []singbox.DNSServer{
+				{
+					Type:   "udp",
+					Tag:    "test-dns",
+					Server: dnsServer,
+				},
+			},
+			Final:          "test-dns",
+			Strategy:       "prefer_ipv4",
+			Independent:    true,
+			DisableExpire:  false,
+			ReverseMapping: false,
+		},
 		Inbounds: []singbox.Inbound{{
 			Type:       "http",
 			Tag:        "http-in",
@@ -692,8 +718,9 @@ func (h *Handlers) startQualityTestProxy(node singbox.Outbound) (string, func(),
 			{Type: "direct", Tag: "direct"},
 		},
 		Route: &singbox.RouteConfig{
-			Final:               node.Tag,
-			AutoDetectInterface: true,
+			Final:                 node.Tag,
+			AutoDetectInterface:   true,
+			DefaultDomainResolver: "test-dns",
 		},
 	}
 

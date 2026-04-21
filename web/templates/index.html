@@ -296,11 +296,10 @@
                                             <span x-text="node.type" class="px-2 py-1 bg-gray-100 rounded text-sm"></span>
                                         </td>
                                         <td class="px-4 py-3 text-light-muted text-sm">
-                                            <span x-show="!node.virtual && node.subscription_names && node.subscription_names.length"
+                                            <span x-show="node.subscription_names && node.subscription_names.length"
                                                   x-text="node.subscription_names.join(', ')"
                                                   class="truncate max-w-xs block"></span>
-                                            <span x-show="!node.virtual && (!node.subscription_names || !node.subscription_names.length)">-</span>
-                                            <span x-show="node.virtual">-</span>
+                                            <span x-show="!node.subscription_names || !node.subscription_names.length">-</span>
                                         </td>
                                         <td class="px-4 py-3 text-light-muted">
                                             <span x-show="!node.virtual" x-text="node.server + ':' + node.port" class="truncate max-w-xs block"></span>
@@ -1151,7 +1150,8 @@
                             this.nodes = (data.data || []).map(node => ({
                                 ...node,
                                 testing: false,
-                                latency: typeof node.latency === 'number' ? node.latency : null
+                                latency: typeof node.latency === 'number' ? node.latency : null,
+                                subscription_names: Array.isArray(node.subscription_names) ? node.subscription_names : []
                             }));
                         }
                     } catch (e) {

@@ -67,6 +67,15 @@ func main() {
 	processMgr := singbox.GetProcessManager()
 	processMgr.Initialize(cfg.SingBox.BinaryPath, cfg.SingBox.ConfigPath)
 
+	// Initialize dedicated test core. It is isolated from the main process and
+	// should not block the service from starting if it fails.
+	testCoreMgr := singbox.GetTestCoreManager()
+	if err := testCoreMgr.Initialize(cfg.SingBox.BinaryPath, cfgMgr.GetDataDir()); err != nil {
+		log.Printf("Warning: failed to initialize test core manager: %v", err)
+	} else if err := testCoreMgr.EnsureReady(updater.GetNodes(), cfg); err != nil {
+		log.Printf("Warning: failed to start test core: %v", err)
+	}
+
 	// Initialize bypass manager
 	bypassMgr := bypass.GetManager()
 	if err := bypassMgr.Initialize(cfgMgr); err != nil {
@@ -135,6 +144,10 @@ func main() {
 			if err := processMgr.Stop(); err != nil {
 				log.Printf("Warning: failed to stop sing-box: %v", err)
 			}
+		}
+
+		if err := testCoreMgr.Stop(); err != nil {
+			log.Printf("Warning: failed to stop test core: %v", err)
 		}
 
 		// Stop bypass auto-refresh

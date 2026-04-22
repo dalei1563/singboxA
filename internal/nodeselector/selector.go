@@ -88,9 +88,6 @@ func PickRecommendedNode(nodes []singbox.Outbound, preference string, testResult
 			return priorityI < priorityJ
 		}
 		if priorityI == 0 {
-			if ranked[i].quality.SuccessRate != ranked[j].quality.SuccessRate {
-				return ranked[i].quality.SuccessRate > ranked[j].quality.SuccessRate
-			}
 			latencyI := normalizeRecommendedLatency(ranked[i].quality.HTTPTTFB)
 			latencyJ := normalizeRecommendedLatency(ranked[j].quality.HTTPTTFB)
 			if latencyI != latencyJ {
@@ -118,7 +115,7 @@ func normalizeRecommendedLatency(latency int) int {
 
 func recommendationPriority(node rankedNode) int {
 	switch {
-	case node.hasQuality && node.quality.SuccessCount > 0:
+	case node.hasQuality && node.quality.HTTPTTFB >= 0:
 		return 0
 	case node.tested:
 		return 1

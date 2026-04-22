@@ -1,21 +1,14 @@
 package api
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
-	"net/http/httptrace"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +24,7 @@ import (
 type Handlers struct {
 	cfgMgr       *config.Manager
 	processMgr   *singbox.ProcessManager
+	testCore     *singbox.TestCoreManager
 	updater      *subscription.Updater
 	generator    *singbox.ConfigGenerator
 	rulesMgr     *rules.RuleManager
@@ -41,19 +35,32 @@ type Handlers struct {
 	pendingNodes []singbox.Outbound
 	testTotal    int
 	testDone     int
+	testEpoch    int64
+	healthMu     sync.Mutex
+	dnsFailures  []time.Time
+	healing      bool
+	lastHeal     time.Time
 }
+
+const (
+	dnsFailureBurstThreshold = 6
+	dnsFailureBurstWindow    = 20 * time.Second
+	dnsHealCooldown          = 2 * time.Minute
+)
 
 func NewHandlers() *Handlers {
 	cfgMgr := config.GetManager()
 	h := &Handlers{
 		cfgMgr:     cfgMgr,
 		processMgr: singbox.GetProcessManager(),
+		testCore:   singbox.GetTestCoreManager(),
 		updater:    subscription.GetUpdater(),
 		generator:  singbox.NewConfigGenerator(cfgMgr.GetDataDir()),
 		rulesMgr:   rules.NewRuleManager(),
 		bypassMgr:  bypass.GetManager(),
 	}
 	h.updater.SetRefreshCallback(h.handleAutomaticRefresh)
+	h.startHealthMonitor()
 	return h
 }
 
@@ -118,6 +125,9 @@ func (h *Handlers) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"proxy_mode":                state.ProxyMode,
 		"last_update":               h.updater.GetLastUpdate(),
 	}
+	testerStatus := h.testCore.Status()
+	data["tester_state"] = testerStatus.State
+	data["tester_error"] = testerStatus.Error
 
 	h.sendJSON(w, data)
 }
@@ -225,6 +235,7 @@ func (h *Handlers) HandleSubscriptions(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		h.invalidateNodeTesting()
 
 		// Fetch subscription in background
 		go func() {
@@ -232,11 +243,11 @@ func (h *Handlers) HandleSubscriptions(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Failed to refresh subscription %s: %v", sub.Name, err)
 				return
 			}
+			h.syncTestCore(h.updater.GetNodes())
 			if _, err := h.normalizeSelectionState(); err != nil {
 				log.Printf("Failed to normalize node selection after adding subscription: %v", err)
 				return
 			}
-			h.queueBackgroundNodeTesting(h.updater.GetNodes())
 		}()
 
 		h.sendJSON(w, sub)
@@ -276,6 +287,7 @@ func (h *Handlers) HandleSubscriptionByID(w http.ResponseWriter, r *http.Request
 
 		h.sendJSON(w, sub)
 	case "DELETE":
+		h.invalidateNodeTesting()
 		if err := h.cfgMgr.DeleteSubscription(id); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -284,6 +296,10 @@ func (h *Handlers) HandleSubscriptionByID(w http.ResponseWriter, r *http.Request
 		if err := h.updater.DeleteSubscriptionCache(id); err != nil {
 			// Log warning but don't fail - subscription is already deleted
 			log.Printf("Warning: failed to delete subscription cache: %v", err)
+		}
+		if err := h.cfgMgr.ClearNodeTestResults(); err != nil {
+			h.sendError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 		selectionChanged, err := h.normalizeSelectionState()
 		if err != nil {
@@ -300,6 +316,7 @@ func (h *Handlers) HandleSubscriptionByID(w http.ResponseWriter, r *http.Request
 				return
 			}
 		}
+		h.syncTestCore(h.updater.GetNodes())
 
 		h.sendJSON(w, map[string]string{"status": "deleted"})
 	default:
@@ -313,6 +330,7 @@ func (h *Handlers) RefreshSubscriptions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	h.invalidateNodeTesting()
 	result, err := h.updater.RefreshAll()
 	if err != nil {
 		h.sendError(w, http.StatusInternalServerError, err.Error())
@@ -321,31 +339,26 @@ func (h *Handlers) RefreshSubscriptions(w http.ResponseWriter, r *http.Request) 
 	h.handleRefreshResult(result)
 
 	h.sendJSON(w, map[string]string{
-		"status":         "refreshed",
-		"testing_status": "started",
+		"status": "refreshed",
 	})
 }
 
 // Node handlers
 
 type NodeInfo struct {
-	Name                   string   `json:"name"`
-	Type                   string   `json:"type"`
-	Server                 string   `json:"server"`
-	Port                   int      `json:"port"`
-	SubscriptionNames      []string `json:"subscription_names,omitempty"`
-	Selected               bool     `json:"selected"`
-	Latency                int      `json:"latency,omitempty"`
-	HTTPTTFB               int      `json:"http_ttfb,omitempty"`
-	SuccessRate            int      `json:"success_rate,omitempty"`
-	SuccessCount           int      `json:"success_count,omitempty"`
-	SampleCount            int      `json:"sample_count,omitempty"`
-	QualityTestedAt        string   `json:"quality_tested_at,omitempty"`
-	EffectiveNode          string   `json:"effective_node,omitempty"`
-	Recommended            string   `json:"recommended_node,omitempty"`
-	RecommendedHTTPTTFB    int      `json:"recommended_http_ttfb,omitempty"`
-	RecommendedSuccessRate int      `json:"recommended_success_rate,omitempty"`
-	Virtual                bool     `json:"virtual,omitempty"`
+	Name                string   `json:"name"`
+	Type                string   `json:"type"`
+	Server              string   `json:"server"`
+	Port                int      `json:"port"`
+	SubscriptionNames   []string `json:"subscription_names,omitempty"`
+	Selected            bool     `json:"selected"`
+	Latency             int      `json:"latency,omitempty"`
+	HTTPTTFB            int      `json:"http_ttfb,omitempty"`
+	QualityTestedAt     string   `json:"quality_tested_at,omitempty"`
+	EffectiveNode       string   `json:"effective_node,omitempty"`
+	Recommended         string   `json:"recommended_node,omitempty"`
+	RecommendedHTTPTTFB int      `json:"recommended_http_ttfb,omitempty"`
+	Virtual             bool     `json:"virtual,omitempty"`
 }
 
 func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
@@ -393,7 +406,6 @@ func (h *Handlers) GetNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		if quality, ok := qualityResults[nodeselector.NodeKey(node)]; ok {
 			autoNode.RecommendedHTTPTTFB = normalizedHTTPLatency(quality.HTTPTTFB)
-			autoNode.RecommendedSuccessRate = quality.SuccessRate
 		}
 		break
 	}
@@ -540,24 +552,18 @@ func (h *Handlers) HandleNodeAction(w http.ResponseWriter, r *http.Request) {
 		result, err := h.runSingleNodeTest(*targetNode)
 		if err != nil {
 			h.sendJSON(w, map[string]interface{}{
-				"node":          nodeName,
-				"latency":       result.HTTPTTFB,
-				"http_ttfb":     result.HTTPTTFB,
-				"success_rate":  result.SuccessRate,
-				"success_count": result.SuccessCount,
-				"sample_count":  result.SampleCount,
-				"error":         err.Error(),
+				"node":      nodeName,
+				"latency":   result.HTTPTTFB,
+				"http_ttfb": result.HTTPTTFB,
+				"error":     err.Error(),
 			})
 			return
 		}
 
 		h.sendJSON(w, map[string]interface{}{
-			"node":          nodeName,
-			"latency":       result.HTTPTTFB,
-			"http_ttfb":     result.HTTPTTFB,
-			"success_rate":  result.SuccessRate,
-			"success_count": result.SuccessCount,
-			"sample_count":  result.SampleCount,
+			"node":      nodeName,
+			"latency":   result.HTTPTTFB,
+			"http_ttfb": result.HTTPTTFB,
 		})
 
 	default:
@@ -583,16 +589,6 @@ func (h *Handlers) TestAllNodes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handlers) testNodeLatency(server string, port int) (int, error) {
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", server, port), 5*time.Second)
-	if err != nil {
-		return -1, err
-	}
-	conn.Close()
-	return int(time.Since(start).Milliseconds()), nil
-}
-
 func (h *Handlers) runSingleNodeTest(node singbox.Outbound) (config.NodeQualityResult, error) {
 	result, err := h.testNodeQuality(node)
 	key := nodeselector.NodeKey(node)
@@ -613,265 +609,49 @@ func (h *Handlers) testNodeQuality(node singbox.Outbound) (config.NodeQualityRes
 		TCPLatency:  -1,
 		HTTPTTFB:    -1,
 		HTTPTotal:   -1,
-		SampleCount: 3,
+		SampleCount: 1,
 		TestedAt:    time.Now().Format(time.RFC3339),
 	}
 
-	tcpLatency, tcpErr := h.testNodeLatency(node.Server, node.ServerPort)
-	result.TCPLatency = tcpLatency
-	if tcpErr != nil {
-		result.Score = 0
-		return result, tcpErr
+	if err := h.testCore.EnsureReady(h.updater.GetNodes(), h.cfgMgr.GetConfig()); err != nil {
+		return result, err
 	}
 
-	proxyAddr, cleanup, err := h.startQualityTestProxy(node)
+	ttfb, err := h.testCore.TestProxyDelay(node.Tag, resolveNodeTestURL(strings.ToLower(strings.TrimSpace(h.cfgMgr.GetConfig().Proxy.TestURLMode))), 999*time.Millisecond)
 	if err != nil {
+		result.HTTPTTFB = 999
+		result.HTTPTotal = 999
 		result.Score = calculateQualityScore(result)
 		return result, err
 	}
-	defer cleanup()
-
-	var ttfbSamples []int
-	var totalSamples []int
-	var firstErr error
-	for i := 0; i < result.SampleCount; i++ {
-		ttfb, total, sampleErr := h.measureHTTPQuality(proxyAddr)
-		if sampleErr != nil {
-			if firstErr == nil {
-				firstErr = sampleErr
-			}
-			continue
-		}
-		result.SuccessCount++
-		if ttfb > 999 {
-			result.HTTPTTFB = 999
-			result.HTTPTotal = 999
-			result.SampleCount = i + 1
-			result.SuccessRate = result.SuccessCount * 100 / result.SampleCount
-			result.Score = calculateQualityScore(result)
-			return result, nil
-		}
-		ttfbSamples = append(ttfbSamples, ttfb)
-		totalSamples = append(totalSamples, total)
-	}
-
-	result.SuccessRate = result.SuccessCount * 100 / result.SampleCount
-	if result.SuccessCount > 0 {
-		result.HTTPTTFB = medianInt(ttfbSamples)
-		result.HTTPTotal = medianInt(totalSamples)
-	}
+	result.HTTPTTFB = normalizedHTTPLatency(ttfb)
+	result.HTTPTotal = result.HTTPTTFB
 	result.Score = calculateQualityScore(result)
-
-	if result.SuccessCount == 0 {
-		if firstErr != nil {
-			return result, firstErr
-		}
-		return result, fmt.Errorf("quality test failed")
-	}
 	return result, nil
 }
 
-func (h *Handlers) startQualityTestProxy(node singbox.Outbound) (string, func(), error) {
-	cfg := h.cfgMgr.GetConfig()
-	port, err := reserveLocalPort()
-	if err != nil {
-		return "", nil, err
+func resolveNodeTestURL(mode string) string {
+	switch mode {
+	case "youtube_ggpht":
+		return "https://yt3.ggpht.com/favicon.ico"
+	case "skk":
+		return "https://latency-test.skk.moe/endpoint"
+	case "jsdelivr":
+		return "https://cdn.jsdelivr.net/npm/latency-test@1.0.0/generate_200"
+	case "github":
+		return "https://github.github.io/janky/images/bg_hr.png"
+	case "gstatic":
+		fallthrough
+	default:
+		return "https://www.gstatic.com/generate_204"
 	}
-
-	tempDir, err := os.MkdirTemp("", "singboxA-quality-*")
-	if err != nil {
-		return "", nil, err
-	}
-
-	dnsServer := "223.5.5.5"
-	if len(cfg.DNS.DomesticServers) > 0 && strings.TrimSpace(cfg.DNS.DomesticServers[0]) != "" {
-		dnsServer = strings.TrimSpace(cfg.DNS.DomesticServers[0])
-	}
-
-	configPath := filepath.Join(tempDir, "config.json")
-	testConfig := &singbox.SingBoxConfig{
-		Log: &singbox.LogConfig{Level: "error"},
-		DNS: &singbox.DNSConfig{
-			Servers: []singbox.DNSServer{
-				{
-					Type:   "udp",
-					Tag:    "test-dns",
-					Server: dnsServer,
-				},
-			},
-			Final:          "test-dns",
-			Strategy:       "prefer_ipv4",
-			Independent:    true,
-			DisableExpire:  false,
-			ReverseMapping: false,
-		},
-		Inbounds: []singbox.Inbound{{
-			Type:       "http",
-			Tag:        "http-in",
-			Listen:     "127.0.0.1",
-			ListenPort: port,
-		}},
-		Outbounds: []singbox.Outbound{
-			node,
-			{Type: "direct", Tag: "direct"},
-		},
-		Route: &singbox.RouteConfig{
-			Final:                 node.Tag,
-			AutoDetectInterface:   true,
-			DefaultDomainResolver: "test-dns",
-		},
-	}
-
-	data, err := json.Marshal(testConfig)
-	if err != nil {
-		_ = os.RemoveAll(tempDir)
-		return "", nil, err
-	}
-	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		_ = os.RemoveAll(tempDir)
-		return "", nil, err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	cmd := exec.CommandContext(ctx, cfg.SingBox.BinaryPath, "run", "-c", configPath)
-	var stderr bytes.Buffer
-	cmd.Stdout = io.Discard
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		cancel()
-		_ = os.RemoveAll(tempDir)
-		return "", nil, fmt.Errorf("failed to start test proxy: %w", err)
-	}
-
-	waitCh := make(chan error, 1)
-	go func() {
-		waitCh <- cmd.Wait()
-	}()
-
-	addr := fmt.Sprintf("http://127.0.0.1:%d", port)
-	if err := waitForLocalPort(port, waitCh); err != nil {
-		cancel()
-		_ = os.RemoveAll(tempDir)
-		msg := strings.TrimSpace(stderr.String())
-		if msg != "" {
-			return "", nil, fmt.Errorf("%w: %s", err, msg)
-		}
-		return "", nil, err
-	}
-
-	cleanup := func() {
-		cancel()
-		select {
-		case <-waitCh:
-		case <-time.After(2 * time.Second):
-		}
-		_ = os.RemoveAll(tempDir)
-	}
-	return addr, cleanup, nil
-}
-
-func (h *Handlers) measureHTTPQuality(proxyAddr string) (int, int, error) {
-	proxyURL, err := url.Parse(proxyAddr)
-	if err != nil {
-		return -1, -1, err
-	}
-
-	var firstByte time.Time
-	transport := &http.Transport{
-		Proxy:               http.ProxyURL(proxyURL),
-		DisableKeepAlives:   true,
-		ForceAttemptHTTP2:   false,
-		TLSHandshakeTimeout: 5 * time.Second,
-	}
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: transport,
-	}
-
-	req, err := http.NewRequest("GET", "https://cp.cloudflare.com/generate_204", nil)
-	if err != nil {
-		return -1, -1, err
-	}
-	start := time.Now()
-	trace := &httptrace.ClientTrace{
-		GotFirstResponseByte: func() {
-			firstByte = time.Now()
-		},
-	}
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return -1, -1, err
-	}
-	defer resp.Body.Close()
-	_, readErr := io.Copy(io.Discard, resp.Body)
-	if readErr != nil {
-		return -1, -1, readErr
-	}
-	total := int(time.Since(start).Milliseconds())
-	if firstByte.IsZero() {
-		firstByte = time.Now()
-	}
-	ttfb := int(firstByte.Sub(start).Milliseconds())
-	if resp.StatusCode >= 500 {
-		return -1, -1, fmt.Errorf("unexpected status: %s", resp.Status)
-	}
-	return ttfb, total, nil
-}
-
-func reserveLocalPort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer listener.Close()
-	if addr, ok := listener.Addr().(*net.TCPAddr); ok {
-		return addr.Port, nil
-	}
-	return 0, fmt.Errorf("failed to reserve local port")
-}
-
-func waitForLocalPort(port int, waitCh <-chan error) error {
-	address := fmt.Sprintf("127.0.0.1:%d", port)
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return nil
-		}
-		select {
-		case waitErr := <-waitCh:
-			if waitErr != nil {
-				return waitErr
-			}
-			return fmt.Errorf("test proxy exited before ready")
-		default:
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("test proxy did not become ready")
-}
-
-func medianInt(values []int) int {
-	if len(values) == 0 {
-		return -1
-	}
-	sorted := append([]int(nil), values...)
-	sort.Ints(sorted)
-	return sorted[len(sorted)/2]
 }
 
 func calculateQualityScore(result config.NodeQualityResult) int {
-	if result.SuccessCount == 0 {
+	if result.HTTPTTFB < 0 {
 		return 0
 	}
-	score := result.SuccessRate * 10
-	if result.HTTPTTFB > 0 {
-		score += maxInt(0, 4000-result.HTTPTTFB) / 40
-	}
-	return score
+	return maxInt(0, 4000-result.HTTPTTFB) / 40
 }
 
 func maxInt(a, b int) int {
@@ -884,9 +664,6 @@ func maxInt(a, b int) int {
 func applyQualityToNodeInfo(nodeInfo *NodeInfo, quality config.NodeQualityResult) {
 	nodeInfo.Latency = normalizedHTTPLatency(quality.HTTPTTFB)
 	nodeInfo.HTTPTTFB = normalizedHTTPLatency(quality.HTTPTTFB)
-	nodeInfo.SuccessRate = quality.SuccessRate
-	nodeInfo.SuccessCount = quality.SuccessCount
-	nodeInfo.SampleCount = quality.SampleCount
 	nodeInfo.QualityTestedAt = quality.TestedAt
 }
 
@@ -925,6 +702,7 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		h.syncTestCore(h.updater.GetNodes())
 		if err := h.ensureAutoSelectionLocked(h.updater.GetNodes()); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1313,6 +1091,92 @@ func (h *Handlers) restartRunningService(clearCache bool) error {
 	return h.processMgr.Restart()
 }
 
+func (h *Handlers) startHealthMonitor() {
+	logChan := h.processMgr.SubscribeLogs()
+	go func() {
+		for entry := range logChan {
+			h.observeLogForHealth(entry)
+		}
+	}()
+}
+
+func (h *Handlers) observeLogForHealth(entry singbox.LogEntry) {
+	message := strings.ToLower(entry.Message)
+	if !strings.Contains(message, "error dns: lookup failed") || !strings.Contains(message, "context deadline exceeded") {
+		return
+	}
+
+	now := time.Now()
+
+	h.healthMu.Lock()
+	filtered := h.dnsFailures[:0]
+	for _, ts := range h.dnsFailures {
+		if now.Sub(ts) <= dnsFailureBurstWindow {
+			filtered = append(filtered, ts)
+		}
+	}
+	h.dnsFailures = append(filtered, now)
+
+	if len(h.dnsFailures) < dnsFailureBurstThreshold || h.healing || now.Sub(h.lastHeal) < dnsHealCooldown {
+		h.healthMu.Unlock()
+		return
+	}
+
+	h.healing = true
+	h.lastHeal = now
+	h.healthMu.Unlock()
+
+	go h.runDNSFailureRecovery()
+}
+
+func (h *Handlers) finishDNSFailureRecovery() {
+	h.healthMu.Lock()
+	h.healing = false
+	h.dnsFailures = nil
+	h.healthMu.Unlock()
+}
+
+func (h *Handlers) runDNSFailureRecovery() {
+	defer h.finishDNSFailureRecovery()
+
+	if h.processMgr.GetState() != singbox.StateRunning {
+		return
+	}
+
+	nodes := h.updater.GetNodes()
+	state := h.cfgMgr.GetState()
+	beforeResolved := nodeselector.Resolve(nodes, state)
+
+	h.processMgr.AddLog("warn", "自愈恢复：检测到连续 DNS 超时，开始自动恢复")
+
+	switched := false
+	if state.SelectedNode == nodeselector.AutoNodeTag {
+		recommended := state.RecommendedAutoNode
+		if recommended == "" || !nodeExistsByTag(nodes, recommended) {
+			recommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
+		}
+		if recommended != "" && recommended != state.AppliedAutoNode {
+			if err := h.cfgMgr.SetAutoSelectionState(recommended, recommended); err == nil {
+				switched = true
+			}
+		}
+	}
+
+	if err := h.restartRunningService(true); err != nil {
+		h.processMgr.AddLog("error", fmt.Sprintf("自愈恢复失败：%v", err))
+		return
+	}
+
+	afterResolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
+	if switched && beforeResolved.EffectiveNode != afterResolved.EffectiveNode {
+		h.processMgr.AddLog("warn", fmt.Sprintf("自愈恢复：已自动切换节点 %s -> %s", beforeResolved.EffectiveNode, afterResolved.EffectiveNode))
+	} else {
+		h.processMgr.AddLog("warn", "自愈恢复：已自动清理 DNS 缓存并重启 sing-box")
+	}
+
+	h.queueBackgroundNodeTesting(nodes)
+}
+
 func (h *Handlers) generateConfig() error {
 	nodes := h.updater.GetNodes()
 	if _, err := h.normalizeSelectionStateWithNodes(nodes); err != nil {
@@ -1417,6 +1281,7 @@ func (h *Handlers) handleRefreshResult(result subscription.RefreshResult) {
 	if !result.Updated {
 		return
 	}
+	h.syncTestCore(result.AfterNodes)
 
 	beforeState := h.cfgMgr.GetState()
 	beforeResolved := nodeselector.Resolve(result.BeforeNodes, beforeState)
@@ -1437,7 +1302,15 @@ func (h *Handlers) handleRefreshResult(result subscription.RefreshResult) {
 		}
 	}
 
-	h.queueBackgroundNodeTesting(result.AfterNodes)
+	if result.Automatic {
+		h.queueBackgroundNodeTesting(result.AfterNodes)
+	}
+}
+
+func (h *Handlers) syncTestCore(nodes []singbox.Outbound) {
+	if err := h.testCore.EnsureReady(nodes, h.cfgMgr.GetConfig()); err != nil {
+		log.Printf("Failed to sync test core: %v", err)
+	}
 }
 
 func (h *Handlers) shouldRestartAfterSubscriptionRefresh(
@@ -1502,6 +1375,17 @@ func (h *Handlers) getNodeTestingCompleted() int {
 	return h.testDone
 }
 
+func (h *Handlers) invalidateNodeTesting() {
+	h.testMu.Lock()
+	defer h.testMu.Unlock()
+	h.testEpoch++
+	h.testing = false
+	h.pendingRun = false
+	h.pendingNodes = nil
+	h.testTotal = 0
+	h.testDone = 0
+}
+
 func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
 	realNodes := make([]singbox.Outbound, 0, len(nodes))
 	for _, node := range nodes {
@@ -1510,11 +1394,16 @@ func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
 		}
 		realNodes = append(realNodes, node)
 	}
+	h.syncTestCore(realNodes)
 
 	h.testMu.Lock()
+	h.testEpoch++
+	epoch := h.testEpoch
 	if h.testing {
 		h.pendingRun = true
 		h.pendingNodes = append([]singbox.Outbound(nil), realNodes...)
+		h.testTotal = len(realNodes)
+		h.testDone = 0
 		h.testMu.Unlock()
 		return
 	}
@@ -1525,27 +1414,36 @@ func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
 
 	go func() {
 		currentNodes := append([]singbox.Outbound(nil), realNodes...)
+		currentEpoch := epoch
 		for {
 			if len(currentNodes) > 0 {
-				results := h.runNodeTests(currentNodes)
-				if err := h.cfgMgr.ReplaceNodeTestResults(results.Latency); err != nil {
-					log.Printf("Failed to persist node test results: %v", err)
-				} else if err := h.cfgMgr.ReplaceNodeQualityResults(results.Quality); err != nil {
-					log.Printf("Failed to persist node quality results: %v", err)
-				} else if err := h.reconcileAutoSelectionAfterTesting(currentNodes); err != nil {
-					log.Printf("Failed to reconcile auto selection after testing: %v", err)
+				results := h.runNodeTests(currentNodes, currentEpoch)
+				h.testMu.Lock()
+				stale := currentEpoch != h.testEpoch
+				h.testMu.Unlock()
+				if !stale {
+					if err := h.cfgMgr.ReplaceNodeTestResults(results.Latency); err != nil {
+						log.Printf("Failed to persist node test results: %v", err)
+					} else if err := h.cfgMgr.ReplaceNodeQualityResults(results.Quality); err != nil {
+						log.Printf("Failed to persist node quality results: %v", err)
+					} else if err := h.reconcileAutoSelectionAfterTesting(currentNodes); err != nil {
+						log.Printf("Failed to reconcile auto selection after testing: %v", err)
+					}
+					log.Printf("Background node testing completed for %d nodes", len(currentNodes))
 				}
-				log.Printf("Background node testing completed for %d nodes", len(currentNodes))
 			}
 
 			h.testMu.Lock()
 			if !h.pendingRun {
-				h.testing = false
-				h.testDone = h.testTotal
+				if currentEpoch == h.testEpoch {
+					h.testing = false
+					h.testDone = h.testTotal
+				}
 				h.testMu.Unlock()
 				return
 			}
 			currentNodes = append([]singbox.Outbound(nil), h.pendingNodes...)
+			currentEpoch = h.testEpoch
 			h.testTotal = len(currentNodes)
 			h.testDone = 0
 			h.pendingRun = false
@@ -1555,7 +1453,7 @@ func (h *Handlers) queueBackgroundNodeTesting(nodes []singbox.Outbound) {
 	}()
 }
 
-func (h *Handlers) runNodeTests(nodes []singbox.Outbound) nodeTestSnapshot {
+func (h *Handlers) runNodeTests(nodes []singbox.Outbound, epoch int64) nodeTestSnapshot {
 	results := nodeTestSnapshot{
 		Latency: make(map[string]int, len(nodes)),
 		Quality: make(map[string]config.NodeQualityResult, len(nodes)),
@@ -1570,13 +1468,21 @@ func (h *Handlers) runNodeTests(nodes []singbox.Outbound) nodeTestSnapshot {
 		go func() {
 			defer wg.Done()
 			for node := range nodeChan {
+				h.testMu.Lock()
+				stale := epoch != h.testEpoch
+				h.testMu.Unlock()
+				if stale {
+					return
+				}
 				quality, _ := h.testNodeQuality(node)
 				resultsMu.Lock()
 				results.Latency[nodeselector.NodeKey(node)] = quality.HTTPTTFB
 				results.Quality[nodeselector.NodeKey(node)] = quality
 				resultsMu.Unlock()
 				h.testMu.Lock()
-				h.testDone++
+				if epoch == h.testEpoch {
+					h.testDone++
+				}
 				h.testMu.Unlock()
 			}
 		}()
@@ -1609,7 +1515,7 @@ func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) 
 			node, ok := findNodeByTag(nodes, applied)
 			if ok {
 				key := nodeselector.NodeKey(node)
-				if quality, exists := state.NodeQualityResults[key]; exists && quality.TestedAt != "" && quality.SuccessCount == 0 && recommended != "" && recommended != applied {
+				if quality, exists := state.NodeQualityResults[key]; exists && quality.TestedAt != "" && quality.HTTPTTFB < 0 && recommended != "" && recommended != applied {
 					switchTarget = recommended
 				} else if latency, exists := state.NodeTestResults[key]; exists && latency < 0 && recommended != "" && recommended != applied {
 					switchTarget = recommended

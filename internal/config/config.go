@@ -53,6 +53,7 @@ type ProxyConfig struct {
 	StrictRoute   bool   `yaml:"strict_route" json:"strict_route"`       // 严格路由
 	SOCK5Port     int    `yaml:"socks5_port" json:"socks5_port"`         // SOCKS5 代理端口，0 表示禁用
 	HTTPProxyPort int    `yaml:"http_proxy_port" json:"http_proxy_port"` // HTTP 代理端口，0 表示禁用
+	TestURLMode   string `yaml:"test_url_mode" json:"test_url_mode"`     // gstatic, youtube_ggpht, skk, jsdelivr, github
 }
 
 type SubscriptionConfig struct {
@@ -174,6 +175,14 @@ func (m *Manager) loadConfig() error {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
+	switch cfg.Proxy.TestURLMode {
+	case "", "gstatic", "youtube_ggpht", "skk", "jsdelivr", "github":
+	default:
+		cfg.Proxy.TestURLMode = "gstatic"
+	}
+	if cfg.Proxy.TestURLMode == "" {
+		cfg.Proxy.TestURLMode = "gstatic"
+	}
 	m.config = &cfg
 	return nil
 }
@@ -234,6 +243,7 @@ func (m *Manager) defaultConfig() *Config {
 			StrictRoute:   true,
 			SOCK5Port:     10808, // SOCKS5 端口
 			HTTPProxyPort: 10809, // HTTP 代理端口
+			TestURLMode:   "gstatic",
 		},
 		Subscription: SubscriptionConfig{
 			AutoUpdate:     true,

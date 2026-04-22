@@ -14,10 +14,10 @@ import (
 
 // Constants
 const (
-	DefaultMaxLogs     = 1000
-	LogChannelBuffer   = 100
-	StopTimeout        = 10 * time.Second
-	RestartDelay       = 500 * time.Millisecond
+	DefaultMaxLogs   = 1000
+	LogChannelBuffer = 100
+	StopTimeout      = 10 * time.Second
+	RestartDelay     = 500 * time.Millisecond
 )
 
 type ProcessState int
@@ -45,17 +45,17 @@ func (s ProcessState) String() string {
 }
 
 type ProcessManager struct {
-	mu          sync.RWMutex
-	cmd         *exec.Cmd
-	cancel      context.CancelFunc
-	state       ProcessState
-	binaryPath  string
-	configPath  string
-	logs        []LogEntry
-	maxLogs     int
-	logChan     chan LogEntry
-	listeners   []chan LogEntry
-	lastLogMsg  string // For deduplication
+	mu         sync.RWMutex
+	cmd        *exec.Cmd
+	cancel     context.CancelFunc
+	state      ProcessState
+	binaryPath string
+	configPath string
+	logs       []LogEntry
+	maxLogs    int
+	logChan    chan LogEntry
+	listeners  []chan LogEntry
+	lastLogMsg string // For deduplication
 }
 
 type LogEntry struct {
@@ -303,6 +303,10 @@ func (pm *ProcessManager) addLog(level, message string) {
 	default:
 		// Drop log if channel is full
 	}
+}
+
+func (pm *ProcessManager) AddLog(level, message string) {
+	pm.addLog(level, message)
 }
 
 func (pm *ProcessManager) GetLogs(limit int) []LogEntry {

@@ -5,220 +5,210 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SingBoxA</title>
     <link rel="stylesheet" href="/static/css/tailwind.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body class="bg-white text-light-text min-h-screen" x-data="app()" x-init="init()">
-    <!-- Main container with header + tabs navigation -->
-    <div class="flex flex-col h-screen">
-        <!-- Header -->
-        <header class="flex items-center justify-between px-6 py-4 bg-light-card border-light-border">
-            <div class="flex items-center gap-4">
-                <h1 class="text-xl font-bold text-orange-500">SingBoxA</h1>
-                <!-- Status Tag (ngui style) -->
-                <span :class="status.state === 'running' ? 'bg-status-running/20 text-status-running border-status-running/40' : 'bg-status-not-running/20 text-red-400 border-status-not-running/40'"
-                      class="px-2 py-0.5 rounded text-xs border">
-                    <span x-text="status.state === 'running' ? '运行中' : '已停止'"></span>
-                </span>
+<body class="app-body" x-data="app()" x-init="init()">
+    <div class="app-shell">
+        <aside class="app-sidebar">
+            <div class="brand-panel">
+                <div class="brand-mark">S</div>
+                <div>
+                    <h1 class="brand-title">SingBoxA</h1>
+                    <p class="brand-subtitle">Lightweight Console for sing-box</p>
+                </div>
             </div>
-            <div class="flex items-center gap-2">
-                <button @click="startService()"
-                        :disabled="status.state === 'running' || loading"
-                        class="px-3 py-1.5 bg-white border-2 border-green-600 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm flex items-center gap-1 transition-colors text-green-600">
-                    <span class="text-xs">▶</span>启动
-                </button>
-                <button @click="stopService()"
-                        :disabled="status.state !== 'running' || loading"
-                        class="px-3 py-1.5 bg-white border-2 border-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm flex items-center gap-1 transition-colors text-red-600">
-                    <span class="text-xs">■</span>停止
-                </button>
-                <button @click="restartService()"
-                        :disabled="loading"
-                        class="px-3 py-1.5 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 rounded text-sm flex items-center gap-1 transition-colors text-orange-500">
-                    <span class="text-xs">↻</span>重启
-                </button>
-            </div>
-        </header>
 
-        <!-- Tabs Navigation -->
-        <nav class="bg-light-card border-light-border">
-            <div class="flex">
-                <button @click="currentTab = 'dashboard'"
-                        :class="currentTab === 'dashboard' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    仪表盘
-                </button>
-                <button @click="currentTab = 'nodes'"
-                        :class="currentTab === 'nodes' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    节点管理
-                </button>
-                <button @click="currentTab = 'subscriptions'"
-                        :class="currentTab === 'subscriptions' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    订阅管理
-                </button>
-                <button @click="currentTab = 'rules'"
-                        :class="currentTab === 'rules' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    规则设置
-                </button>
-                <button @click="currentTab = 'bypass'"
-                        :class="currentTab === 'bypass' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    绕过管理
-                </button>
-                <button @click="currentTab = 'settings'"
-                        :class="currentTab === 'settings' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    系统设置
-                </button>
-                <button @click="currentTab = 'connections'"
-                        :class="currentTab === 'connections' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    连接
-                </button>
-                <button @click="currentTab = 'logs'"
-                        :class="currentTab === 'logs' ? 'text-orange-500 border-orange-500' : 'text-light-muted hover:text-light-text border-transparent'"
-                        class="px-4 py-3 text-sm border-b-2 transition-colors flex items-center gap-1.5">
-                    日志查看
-                </button>
+            <div class="sidebar-health">
+                <div class="sidebar-health-item">
+                    <span class="sidebar-health-label">服务</span>
+                    <span class="status-chip" :class="getStatusBadgeClass()"
+                          x-text="status.state === 'running' ? '运行中' : '已停止'"></span>
+                </div>
+                <div class="sidebar-health-item">
+                    <span class="sidebar-health-label">模式</span>
+                    <span class="sidebar-health-value" x-text="getModeText(status.proxy_mode)"></span>
+                </div>
+                <div class="sidebar-health-item">
+                    <span class="sidebar-health-label">节点</span>
+                    <span class="sidebar-health-value" x-text="nodes.length"></span>
+                </div>
+                <div class="sidebar-health-item">
+                    <span class="sidebar-health-label">测速内核</span>
+                    <span class="status-chip" :class="getTesterBadgeClass()" x-text="getTesterLabel()"></span>
+                </div>
             </div>
-        </nav>
 
-        <!-- Main Content Area -->
-        <main class="flex-1 overflow-auto p-6">
+            <nav class="sidebar-nav">
+                <template x-for="item in navItems" :key="item.key">
+                    <button @click="setTab(item.key)"
+                            :class="currentTab === item.key ? 'is-active' : ''"
+                            class="sidebar-nav-item">
+                        <span class="sidebar-nav-icon" x-text="item.icon"></span>
+                        <span class="sidebar-nav-copy">
+                            <span class="sidebar-nav-label" x-text="item.label"></span>
+                            <span class="sidebar-nav-desc" x-text="item.desc"></span>
+                        </span>
+                    </button>
+                </template>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-footer-card">
+                    <div class="sidebar-footer-label">当前节点</div>
+                    <div class="sidebar-footer-value" x-text="getSelectedNodeText()"></div>
+                    <div x-show="status.selected_mode === 'auto' && status.effective_node"
+                         class="sidebar-footer-muted">
+                        命中: <span x-text="status.effective_node"></span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <section class="workspace-shell">
+            <header class="workspace-header">
+                <div class="workspace-heading">
+                    <p class="workspace-kicker">sing-box control plane</p>
+                    <h2 class="workspace-title" x-text="getPageTitle()"></h2>
+                    <p class="workspace-subtitle" x-text="getPageSubtitle()"></p>
+                </div>
+
+                <div class="workspace-toolbar">
+                    <div class="toolbar-summary">
+                        <span class="toolbar-pill" :class="getStatusBadgeClass()"
+                              x-text="status.state === 'running' ? '内核运行中' : '内核已停止'"></span>
+                        <span class="toolbar-pill is-neutral" x-text="'测速目标 · ' + getCurrentTestURLModeLabel()"></span>
+                    </div>
+                    <div class="toolbar-actions">
+                        <button @click="startService()"
+                                :disabled="status.state === 'running' || loading"
+                                class="toolbar-button is-success">
+                            启动
+                        </button>
+                        <button @click="stopService()"
+                                :disabled="status.state !== 'running' || loading"
+                                class="toolbar-button is-danger">
+                            停止
+                        </button>
+                        <button @click="restartService()"
+                                :disabled="loading"
+                                class="toolbar-button is-primary">
+                            重启
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <main class="workspace-main">
             <!-- Dashboard -->
-            <div x-show="currentTab === 'dashboard'">
-                <h2 class="text-2xl font-bold mb-6">仪表盘</h2>
-
-                <!-- Status cards -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-white rounded-lg p-4 border border-light-border">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-light-muted text-sm">服务状态</p>
-                                <p class="text-xl font-bold" :class="status.state === 'running' ? 'text-status-running' : 'text-light-muted'"
-                                   x-text="status.state === 'running' ? '运行中' : '已停止'"></p>
-                            </div>
-                            <div :class="status.state === 'running' ? 'bg-status-running/20 text-status-running' : 'bg-gray-100 text-light-muted'"
-                                 class="p-3 rounded-lg">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                                </svg>
-                            </div>
-                        </div>
+            <div x-show="currentTab === 'dashboard'" class="page-view">
+                <div class="nodes-summary-grid mb-6">
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">服务状态</span>
+                        <strong class="mini-stat-value" :class="status.state === 'running' ? 'text-status-running' : 'text-light-muted'"
+                                x-text="status.state === 'running' ? '运行中' : '已停止'"></strong>
                     </div>
-
-                    <div class="bg-white rounded-lg p-4 border border-light-border">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-light-muted text-sm">节点数量</p>
-                                <p class="text-xl font-bold" x-text="nodes.length"></p>
-                            </div>
-                            <div class="bg-orange-500/20 text-orange-400 p-3 rounded-lg">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
-                                </svg>
-                            </div>
-                        </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">节点数量</span>
+                        <strong class="mini-stat-value" x-text="nodes.length"></strong>
                     </div>
-
-                    <div class="bg-white rounded-lg p-4 border border-light-border">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-light-muted text-sm">当前节点</p>
-                                <p class="text-xl font-bold truncate" x-text="getSelectedNodeText()"></p>
-                                <p x-show="status.selected_mode === 'auto' && status.effective_node"
-                                   class="text-xs text-light-muted mt-1 truncate">
-                                    当前命中: <span x-text="status.effective_node"></span>
-                                </p>
-                            </div>
-                            <div class="bg-orange-500/20 text-orange-400 p-3 rounded-lg">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-                                </svg>
-                            </div>
-                        </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">当前节点</span>
+                        <strong class="mini-stat-value truncate" x-text="getSelectedNodeText()"></strong>
                     </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">代理模式</span>
+                        <strong class="mini-stat-value" x-text="getModeText(status.proxy_mode)"></strong>
+                    </div>
+                </div>
 
-                    <div class="bg-white rounded-lg p-4 border border-light-border">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-light-muted text-sm">代理模式</p>
-                                <p class="text-xl font-bold" x-text="getModeText(status.proxy_mode)"></p>
-                            </div>
-                            <div class="bg-yellow-500/20 text-yellow-400 p-3 rounded-lg">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
-                                </svg>
-                            </div>
+                <div class="bg-white rounded-lg p-5 border border-light-border mb-6">
+                    <div class="simple-overview">
+                        <div>
+                            <h3 class="simple-overview-title">系统状态</h3>
+                            <p class="simple-overview-text" x-text="getDashboardAdvice()"></p>
+                        </div>
+                        <div class="simple-overview-meta">
+                            <span class="toolbar-pill is-neutral">自动更新订阅 · <span x-text="getAutoUpdateSubscriptionCount()"></span></span>
+                            <span class="toolbar-pill is-neutral">已测速节点 · <span x-text="getTestedNodeCount()"></span></span>
+                            <span class="toolbar-pill is-neutral">健康节点 · <span x-text="getHealthyNodeCount()"></span></span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Quick actions -->
-                <div class="bg-white rounded-lg p-6 border border-light-border mb-6">
-                    <h3 class="text-lg font-semibold mb-4">快捷操作</h3>
-                    <div class="flex flex-wrap gap-4">
+                <div class="bg-white rounded-lg p-5 border border-light-border mb-6">
+                    <div class="section-heading">
+                        <div>
+                            <h3 class="text-lg font-semibold">快捷操作</h3>
+                            <p class="section-subtitle">保留最常用的启动、重启和订阅同步动作。</p>
+                        </div>
+                    </div>
+                    <div class="action-grid">
                         <button @click="startService()"
                                 :disabled="status.state === 'running' || loading"
-                                class="px-6 py-2 bg-white border-2 border-green-600 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-green-600">
+                                class="action-tile action-tile-start">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
-                            启动服务
+                            <span>启动服务</span>
                         </button>
 
                         <button @click="stopService()"
                                 :disabled="status.state !== 'running' || loading"
-                                class="px-6 py-2 bg-white border-2 border-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-red-600">
+                                class="action-tile action-tile-stop">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
                             </svg>
-                            停止服务
+                            <span>停止服务</span>
                         </button>
 
                         <button @click="restartService()"
                                 :disabled="loading"
-                                class="px-6 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
+                                class="action-tile action-tile-restart">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                             </svg>
-                            重启服务
+                            <span>重启服务</span>
                         </button>
 
                         <button @click="refreshSubscriptions()"
                                 :disabled="loading"
-                                class="px-6 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
+                                class="action-tile action-tile-sync">
                             <svg class="w-5 h-5" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                             </svg>
-                            刷新订阅
+                            <span>刷新订阅</span>
                         </button>
                     </div>
                 </div>
 
                 <!-- Proxy mode -->
-                <div class="bg-white rounded-lg p-6 border border-light-border">
-                    <h3 class="text-lg font-semibold mb-4">代理模式</h3>
+                <div class="bg-white rounded-lg p-5 border border-light-border">
+                    <div class="section-heading">
+                        <div>
+                            <h3 class="text-lg font-semibold">代理模式</h3>
+                            <p class="section-subtitle">在规则、全局和直连之间快速切换。</p>
+                        </div>
+                    </div>
                     <div class="flex gap-4">
                         <button @click="setProxyMode('rule')"
-                                :class="status.proxy_mode === 'rule' ? 'bg-orange-500 border-orange-500 text-white' : 'border-light-border hover:border-orange-500 text-light-text'"
+                                :class="status.proxy_mode === 'rule' ? 'mode-card is-active' : 'mode-card'"
                                 class="flex-1 p-4 rounded-lg border-2 transition-colors">
                             <p class="font-semibold">规则模式</p>
                             <p class="text-sm" :class="status.proxy_mode === 'rule' ? 'text-white/80' : 'text-light-muted'">根据规则自动分流</p>
                         </button>
 
                         <button @click="setProxyMode('global')"
-                                :class="status.proxy_mode === 'global' ? 'bg-orange-500 border-orange-500 text-white' : 'border-light-border hover:border-orange-500 text-light-text'"
+                                :class="status.proxy_mode === 'global' ? 'mode-card is-active' : 'mode-card'"
                                 class="flex-1 p-4 rounded-lg border-2 transition-colors">
                             <p class="font-semibold">全局模式</p>
                             <p class="text-sm" :class="status.proxy_mode === 'global' ? 'text-white/80' : 'text-light-muted'">所有流量走代理</p>
                         </button>
 
                         <button @click="setProxyMode('direct')"
-                                :class="status.proxy_mode === 'direct' ? 'bg-orange-500 border-orange-500 text-white' : 'border-light-border hover:border-orange-500 text-light-text'"
+                                :class="status.proxy_mode === 'direct' ? 'mode-card is-active' : 'mode-card'"
                                 class="flex-1 p-4 rounded-lg border-2 transition-colors">
                             <p class="font-semibold">直连模式</p>
                             <p class="text-sm" :class="status.proxy_mode === 'direct' ? 'text-white/80' : 'text-light-muted'">所有流量直连</p>
@@ -228,9 +218,12 @@
             </div>
 
             <!-- Nodes page -->
-            <div x-show="currentTab === 'nodes'" x-cloak class="p-6">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold">节点管理</h2>
+            <div x-show="currentTab === 'nodes'" x-cloak class="page-view">
+                <div class="panel-header-row">
+                    <div>
+                        <h2 class="text-2xl font-bold">节点管理</h2>
+                        <p class="section-subtitle">围绕自动选择、推荐候选和 HTTP 延迟来管理节点。</p>
+                    </div>
                     <div class="flex items-center gap-3">
                         <span x-show="status.testing_total > 0"
                               class="text-sm text-light-muted">
@@ -238,7 +231,7 @@
                         </span>
                         <span x-show="appConfig && appConfig.proxy && appConfig.proxy.test_url_mode"
                               class="text-sm text-light-muted">
-                            当前测速目标: <span x-text="getTestURLModeLabel(appConfig.proxy.test_url_mode)"></span>
+                            当前测速目标: <span x-text="getCurrentTestURLModeLabel()"></span>
                         </span>
                         <button @click="testAllNodes()"
                                 :disabled="loading || testing"
@@ -251,7 +244,32 @@
                     </div>
                 </div>
 
+                <div class="nodes-summary-grid mb-6">
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">当前策略</span>
+                        <strong class="mini-stat-value" x-text="status.selected_mode === 'auto' ? '自动选择' : '手动节点'"></strong>
+                    </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">当前命中</span>
+                        <strong class="mini-stat-value truncate" x-text="status.effective_node || status.selected_node || '-'"></strong>
+                    </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">推荐候选</span>
+                        <strong class="mini-stat-value truncate" x-text="status.recommended_node || '-'"></strong>
+                    </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">测速线程</span>
+                        <strong class="mini-stat-value" x-text="getCurrentTestWorkerCount() + ' 个'"></strong>
+                    </div>
+                </div>
+
                 <div class="bg-white rounded-lg border border-light-border overflow-hidden">
+                    <div class="table-toolbar">
+                        <div>
+                            <h3 class="table-toolbar-title">节点列表</h3>
+                            <p class="table-toolbar-subtitle">自动选择始终固定在顶部，其他节点可按名称或 HTTP 延迟排序。</p>
+                        </div>
+                    </div>
                     <div class="overflow-x-auto">
                         <table class="w-full">
                             <thead class="bg-gray-100">
@@ -311,10 +329,10 @@
                                         </td>
                                         <td class="px-4 py-3">
                                             <span x-show="node.latency > 0 && node.latency < 999" x-text="node.latency + 'ms'"
-                                                  :class="node.latency < 200 ? 'text-green-400' : node.latency < 500 ? 'text-yellow-400' : 'text-red-400'"></span>
-                                            <span x-show="node.latency === 999" class="text-red-400">999ms</span>
-                                            <span x-show="node.latency === -1" class="text-red-400">超时</span>
-                                            <span x-show="!node.latency && node.latency !== -1" class="text-light-muted">未测</span>
+                                                  :class="'latency-chip ' + getNodeLatencyClass(node.latency)"></span>
+                                            <span x-show="node.latency === 999" class="latency-chip is-bad">999ms</span>
+                                            <span x-show="node.latency === -1" class="latency-chip is-bad">超时</span>
+                                            <span x-show="!node.latency && node.latency !== -1" class="latency-chip is-idle">未测</span>
                                         </td>
                                         <td class="px-4 py-3">
                                             <div class="flex gap-2">
@@ -352,9 +370,12 @@
             </div>
 
             <!-- Subscriptions page -->
-            <div x-show="currentTab === 'subscriptions'" x-cloak class="p-6">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold">订阅管理</h2>
+            <div x-show="currentTab === 'subscriptions'" x-cloak class="page-view">
+                <div class="panel-header-row">
+                    <div>
+                        <h2 class="text-2xl font-bold">订阅管理</h2>
+                        <p class="section-subtitle">统一查看订阅来源、自动更新状态和最近同步情况。</p>
+                    </div>
                     <button @click="showAddSubscription = true"
                             class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg transition-colors flex items-center gap-2 text-orange-500">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -364,22 +385,53 @@
                     </button>
                 </div>
 
+                <div class="nodes-summary-grid mb-6">
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">订阅总数</span>
+                        <strong class="mini-stat-value" x-text="subscriptions.length"></strong>
+                    </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">自动更新</span>
+                        <strong class="mini-stat-value" x-text="getAutoUpdateSubscriptionCount()"></strong>
+                    </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">24h 内更新</span>
+                        <strong class="mini-stat-value" x-text="getRecentSubscriptionCount()"></strong>
+                    </div>
+                    <div class="mini-stat-card">
+                        <span class="mini-stat-label">当前节点来源</span>
+                        <strong class="mini-stat-value truncate" x-text="subscriptions.length ? '已连接订阅源' : '-'"></strong>
+                    </div>
+                </div>
+
                 <div class="space-y-4">
                     <template x-for="sub in subscriptions" :key="sub.id">
-                        <div class="bg-white rounded-lg p-4 border border-light-border">
-                            <div class="flex justify-between items-start">
+                        <div class="bg-white rounded-lg p-4 border border-light-border subscription-card">
+                            <div class="flex justify-between items-start gap-6">
                                 <div class="flex-1">
-                                    <h3 class="font-semibold" x-text="sub.name"></h3>
+                                    <div class="subscription-card-head">
+                                        <h3 class="font-semibold" x-text="sub.name"></h3>
+                                        <span class="subscription-state-pill"
+                                              :class="getSubscriptionStatusClass(sub)"
+                                              x-text="sub.auto_update ? '自动更新中' : '手动维护'"></span>
+                                    </div>
                                     <p class="text-sm text-light-muted truncate" x-text="sub.url"></p>
-                                    <p class="text-xs mt-1" :class="sub.auto_update ? 'text-green-600' : 'text-light-muted'">
-                                        自动更新: <span x-text="sub.auto_update ? '开启' : '关闭'"></span>
-                                    </p>
-                                    <p class="text-xs text-light-muted mt-1">
-                                        更新间隔: <span x-text="sub.auto_update ? (sub.update_interval || 60) : '-'"></span><span x-show="sub.auto_update"> 分钟</span>
-                                    </p>
-                                    <p class="text-xs text-light-muted mt-1" x-show="sub.updated_at">
-                                        上次更新: <span x-text="formatDate(sub.updated_at)"></span>
-                                    </p>
+                                    <div class="subscription-meta-grid">
+                                        <div class="subscription-meta-item">
+                                            <span class="subscription-meta-label">自动更新</span>
+                                            <span class="subscription-meta-value" x-text="sub.auto_update ? '开启' : '关闭'"></span>
+                                        </div>
+                                        <div class="subscription-meta-item">
+                                            <span class="subscription-meta-label">更新间隔</span>
+                                            <span class="subscription-meta-value">
+                                                <span x-text="sub.auto_update ? (sub.update_interval || 60) : '-'"></span><span x-show="sub.auto_update"> 分钟</span>
+                                            </span>
+                                        </div>
+                                        <div class="subscription-meta-item" x-show="sub.updated_at">
+                                            <span class="subscription-meta-label">上次更新</span>
+                                            <span class="subscription-meta-value" x-text="formatDate(sub.updated_at)"></span>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="flex gap-2 ml-4">
                                     <button @click="openEditSubscription(sub)"
@@ -508,7 +560,7 @@
             </div>
 
             <!-- Rules page -->
-            <div x-show="currentTab === 'rules'" x-cloak class="p-6">
+            <div x-show="currentTab === 'rules'" x-cloak class="page-view">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold">规则设置</h2>
                     <div class="flex items-center gap-4">
@@ -624,7 +676,7 @@
             </div>
 
             <!-- Bypass page -->
-            <div x-show="currentTab === 'bypass'" x-cloak class="p-6">
+            <div x-show="currentTab === 'bypass'" x-cloak class="page-view">
                 <div class="flex justify-between items-center mb-6">
                     <div>
                         <h2 class="text-2xl font-bold">绕过管理</h2>
@@ -727,7 +779,7 @@
             </div>
 
             <!-- Settings page -->
-            <div x-show="currentTab === 'settings'" x-cloak class="p-6">
+            <div x-show="currentTab === 'settings'" x-cloak class="page-view">
                 <h2 class="text-2xl font-bold mb-6">系统设置</h2>
 
                 <template x-if="appConfig && appConfig.proxy && appConfig.dns">
@@ -845,7 +897,22 @@
                                 </select>
                                 <p class="text-xs text-light-muted mt-1">默认使用 Gstatic 探测；也可以切到 YouTube、SKK、jsDelivr 或 GitHub 链路做测速。</p>
                                 <p class="text-xs text-light-muted mt-1">
-                                    当前生效: <span x-text="getTestURLModeLabel(appConfig.proxy.test_url_mode)"></span>
+                                    当前生效: <span x-text="getCurrentTestURLModeLabel()"></span>
+                                </p>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-light-muted mb-2">测速线程数</label>
+                                <select x-model.number="appConfig.proxy.test_workers"
+                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
+                                    <option :value="1">1</option>
+                                    <option :value="2">2</option>
+                                    <option :value="3">3</option>
+                                    <option :value="4">4</option>
+                                    <option :value="5">5</option>
+                                </select>
+                                <p class="text-xs text-light-muted mt-1">控制测速专用 sing-box worker 数量，以及一键测速并发度。软路由性能较弱时可以先调低到 1~2 试试。</p>
+                                <p class="text-xs text-light-muted mt-1">
+                                    当前生效: <span x-text="getCurrentTestWorkerCount()"></span> 个
                                 </p>
                             </div>
                         </div>
@@ -886,7 +953,7 @@
             </div>
 
             <!-- Connections page -->
-            <div x-show="currentTab === 'connections'" x-cloak class="p-6 h-full flex flex-col">
+            <div x-show="currentTab === 'connections'" x-cloak class="page-view h-full flex flex-col">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-2xl font-bold">连接管理</h2>
                     <div class="flex items-center gap-3">
@@ -967,7 +1034,7 @@
             </div>
 
             <!-- Logs page -->
-            <div x-show="currentTab === 'logs'" x-cloak class="p-6 h-full flex flex-col">
+            <div x-show="currentTab === 'logs'" x-cloak class="page-view h-full flex flex-col">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-2xl font-bold">日志查看</h2>
                     <div class="flex items-center gap-3">
@@ -1016,6 +1083,7 @@
                 </div>
             </div>
         </main>
+        </section>
     </div>
 
     <!-- Toast notifications -->
@@ -1033,982 +1101,7 @@
         </template>
     </div>
 
-    <script>
-        function app() {
-            return {
-                currentTab: 'dashboard',
-                loading: false,
-                testing: false,
-                status: {
-                    state: 'stopped',
-                    node_count: 0,
-                    node_testing: false,
-                    selected_node: 'auto',
-                    selected_mode: 'auto',
-                    effective_node: '',
-                    recommended_node: '',
-                    testing_total: 0,
-                    testing_completed: 0,
-                    node_selection_preference: 'auto',
-                    proxy_mode: 'rule'
-                },
-                nodes: [],
-                subscriptions: [],
-                rulesInfo: {
-                    default_rules: [],
-                    custom_rules: [],
-                    geosite_values: [],
-                    geoip_values: [],
-                    last_rule_update: ''
-                },
-                appConfig: null,
-                logs: [],
-                logLevel: 'info',
-                logFilter: 'all',
-                logSearch: '',
-                toasts: [],
-                connections: [],
-                connStats: { download: 0, upload: 0 },
-                connInterval: null,
-                uiRefreshInterval: null,
-                showAddSubscription: false,
-                showEditSubscription: false,
-                showAddRule: false,
-                showAddBypass: false,
-                newSubscription: { name: '', url: '', auto_update: true, update_interval: 60 },
-                editingSubscription: { id: '', name: '', url: '', auto_update: true, update_interval: 60 },
-                newRule: { type: 'domain', value: '', outbound: 'proxy' },
-                newBypass: { address: '', comment: '' },
-                bypassInfo: { bypass_list: [], gateway: '', interface: '' },
-                bypassLoading: false,
-                eventSource: null,
-                clearingCache: false,
-                nodeSort: {
-                    field: null
-                },
-
-                async init() {
-                    this.loadNodeSort();
-                    await this.fetchStatus();
-                    await this.fetchNodes();
-                    await this.fetchSubscriptions();
-                    await this.fetchRules();
-                    await this.fetchConfig();
-                    await this.fetchLogLevel();
-                    await this.fetchBypass();
-
-                    // Start polling
-                    this.uiRefreshInterval = setInterval(async () => {
-                        await this.fetchStatus();
-                        if (this.currentTab === 'nodes') {
-                            await this.fetchNodes();
-                        }
-                        if (this.currentTab === 'subscriptions') {
-                            await this.fetchSubscriptions();
-                        }
-                    }, 5000);
-
-                    // Watch for page changes to manage SSE connection
-                    this.$watch('currentTab', (newPage, oldPage) => {
-                        if (newPage === 'logs') {
-                            this.fetchLogs();
-                            this.connectSSE();
-                        } else if (oldPage === 'logs') {
-                            this.disconnectSSE();
-                        }
-                        if (newPage === 'connections') {
-                            this.fetchConnections();
-                            this.startConnPolling();
-                        } else if (oldPage === 'connections') {
-                            this.stopConnPolling();
-                        }
-                        if (newPage === 'nodes') {
-                            this.fetchNodes();
-                        }
-                        if (newPage === 'subscriptions') {
-                            this.fetchSubscriptions();
-                        }
-                    });
-                },
-
-                async fetchStatus() {
-                    try {
-                        const res = await fetch('/api/status');
-                        const data = await res.json();
-                        if (data.success) {
-                            this.status = data.data;
-                            this.testing = Boolean(data.data.node_testing);
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch status:', e);
-                    }
-                },
-
-                async fetchNodes() {
-                    try {
-                        const res = await fetch('/api/nodes');
-                        const data = await res.json();
-                        if (data.success) {
-                            // Initialize testing and latency fields for each node
-                            this.nodes = (data.data || []).map(node => ({
-                                ...node,
-                                testing: false,
-                                latency: typeof node.latency === 'number' ? node.latency : null,
-                                subscription_names: Array.isArray(node.subscription_names) ? node.subscription_names : []
-                            }));
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch nodes:', e);
-                    }
-                },
-
-                async fetchSubscriptions() {
-                    try {
-                        const res = await fetch('/api/subscriptions');
-                        const data = await res.json();
-                        if (data.success) {
-                            this.subscriptions = data.data || [];
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch subscriptions:', e);
-                    }
-                },
-
-                async fetchRules() {
-                    try {
-                        const res = await fetch('/api/rules');
-                        const data = await res.json();
-                        if (data.success) {
-                            this.rulesInfo = data.data;
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch rules:', e);
-                    }
-                },
-
-                async refreshRules() {
-                    try {
-                        const res = await fetch('/api/rules/refresh', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('规则已更新', 'success');
-                            // 重新获取规则信息以更新界面
-                            await this.fetchRules();
-                        } else {
-                            this.showToast(data.error || '更新失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('更新失败: ' + e.message, 'error');
-                    }
-                },
-
-                async fetchConfig() {
-                    try {
-                        const res = await fetch('/api/config');
-                        const data = await res.json();
-                        if (data.success) {
-                            this.appConfig = data.data;
-                            if (!this.newSubscription.update_interval) {
-                                this.newSubscription.update_interval = this.appConfig?.subscription?.update_interval || 60;
-                            }
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch config:', e);
-                    }
-                },
-
-                async fetchLogs() {
-                    try {
-                        const res = await fetch('/api/logs');
-                        const data = await res.json();
-                        if (data.success) {
-                            this.logs = data.data || [];
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch logs:', e);
-                    }
-                },
-
-                connectSSE() {
-                    if (this.eventSource) {
-                        this.eventSource.close();
-                    }
-
-                    this.eventSource = new EventSource('/api/logs/stream');
-                    let scrollTimeout = null;
-
-                    this.eventSource.onmessage = (event) => {
-                        const log = JSON.parse(event.data);
-                        this.logs.push(log);
-                        // Limit logs to prevent memory issues
-                        if (this.logs.length > 200) {
-                            this.logs = this.logs.slice(-200);
-                        }
-                        // Debounced auto-scroll (only on logs page)
-                        if (this.currentTab === 'logs') {
-                            clearTimeout(scrollTimeout);
-                            scrollTimeout = setTimeout(() => {
-                                const container = document.getElementById('log-container');
-                                if (container) {
-                                    container.scrollTop = container.scrollHeight;
-                                }
-                            }, 100);
-                        }
-                    };
-
-                    this.eventSource.onerror = () => {
-                        this.eventSource.close();
-                        // Only reconnect if still on logs page
-                        if (this.currentTab === 'logs') {
-                            setTimeout(() => this.connectSSE(), 5000);
-                        }
-                    };
-                },
-
-                disconnectSSE() {
-                    if (this.eventSource) {
-                        this.eventSource.close();
-                        this.eventSource = null;
-                    }
-                },
-
-                async fetchConnections() {
-                    try {
-                        const res = await fetch('/api/clash/connections');
-                        const data = await res.json();
-                        this.connections = data.connections || [];
-                        this.connStats = {
-                            download: data.downloadTotal || 0,
-                            upload: data.uploadTotal || 0
-                        };
-                    } catch (e) {
-                        console.error('Failed to fetch connections:', e);
-                    }
-                },
-
-                startConnPolling() {
-                    this.stopConnPolling();
-                    this.connInterval = setInterval(() => this.fetchConnections(), 2000);
-                },
-
-                stopConnPolling() {
-                    if (this.connInterval) {
-                        clearInterval(this.connInterval);
-                        this.connInterval = null;
-                    }
-                },
-
-                async closeConnection(id) {
-                    try {
-                        await fetch(`/api/clash/connections/${id}`, { method: 'DELETE' });
-                        await this.fetchConnections();
-                    } catch (e) {
-                        this.showToast('断开连接失败', 'error');
-                    }
-                },
-
-                async closeAllConnections() {
-                    if (!confirm('确定断开所有连接?')) return;
-                    try {
-                        await fetch('http://127.0.0.1:9091/connections', { method: 'DELETE' });
-                        await this.fetchConnections();
-                        this.showToast('已断开所有连接', 'success');
-                    } catch (e) {
-                        this.showToast('断开失败', 'error');
-                    }
-                },
-
-                async startService() {
-                    this.loading = true;
-                    try {
-                        const res = await fetch('/api/start', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('服务已启动', 'success');
-                            await this.fetchStatus();
-                        } else {
-                            this.showToast(data.error || '启动失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('启动失败: ' + e.message, 'error');
-                    }
-                    this.loading = false;
-                },
-
-                async stopService() {
-                    this.loading = true;
-                    try {
-                        const res = await fetch('/api/stop', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('服务已停止', 'success');
-                            await this.fetchStatus();
-                        } else {
-                            this.showToast(data.error || '停止失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('停止失败: ' + e.message, 'error');
-                    }
-                    this.loading = false;
-                },
-
-                async restartService() {
-                    this.loading = true;
-                    try {
-                        const res = await fetch('/api/restart', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('服务已重启', 'success');
-                            await this.fetchStatus();
-                            await this.fetchNodes();
-                            setTimeout(() => {
-                                this.fetchStatus();
-                                this.fetchNodes();
-                            }, 1200);
-                        } else {
-                            this.showToast(data.error || '重启失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('重启失败: ' + e.message, 'error');
-                    }
-                    this.loading = false;
-                },
-
-                async refreshSubscriptions() {
-                    this.loading = true;
-                    try {
-                        const res = await fetch('/api/subscriptions/refresh', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('订阅已刷新', 'success');
-                            await this.fetchSubscriptions();
-                            await this.fetchNodes();
-                        } else {
-                            this.showToast(data.error || '刷新失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('刷新失败: ' + e.message, 'error');
-                    }
-                    this.loading = false;
-                },
-
-                async refreshSubscription(sub) {
-                    try {
-                        // Use global refresh endpoint since per-subscription refresh is not available
-                        const res = await fetch('/api/subscriptions/refresh', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('订阅已刷新', 'success');
-                            await this.fetchSubscriptions();
-                            await this.fetchNodes();
-                        } else {
-                            this.showToast(data.error || '刷新失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('刷新失败: ' + e.message, 'error');
-                    }
-                },
-
-                async addSubscription() {
-                    const payload = {
-                        ...this.newSubscription,
-                        update_interval: this.newSubscription.auto_update
-                            ? (this.newSubscription.update_interval || this.appConfig?.subscription?.update_interval || 60)
-                            : 0
-                    };
-                    try {
-                        const res = await fetch('/api/subscriptions', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('订阅已添加', 'success');
-                            this.showAddSubscription = false;
-                            this.newSubscription = {
-                                name: '',
-                                url: '',
-                                auto_update: true,
-                                update_interval: this.appConfig?.subscription?.update_interval || 60
-                            };
-                            await this.fetchSubscriptions();
-                            setTimeout(() => this.fetchNodes(), 2000);
-                        } else {
-                            this.showToast(data.error || '添加失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('添加失败: ' + e.message, 'error');
-                    }
-                },
-
-                openEditSubscription(sub) {
-                    this.editingSubscription = {
-                        id: sub.id,
-                        name: sub.name,
-                        url: sub.url,
-                        auto_update: sub.auto_update !== false,
-                        update_interval: sub.update_interval || this.appConfig?.subscription?.update_interval || 60
-                    };
-                    this.showEditSubscription = true;
-                },
-
-                async updateSubscription() {
-                    const payload = {
-                        ...this.editingSubscription,
-                        update_interval: this.editingSubscription.auto_update
-                            ? (this.editingSubscription.update_interval || this.appConfig?.subscription?.update_interval || 60)
-                            : 0
-                    };
-                    try {
-                        const res = await fetch(`/api/subscriptions/${this.editingSubscription.id}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('订阅已更新', 'success');
-                            this.showEditSubscription = false;
-                            await this.fetchSubscriptions();
-                        } else {
-                            this.showToast(data.error || '更新失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('更新失败: ' + e.message, 'error');
-                    }
-                },
-
-                async deleteSubscription(id) {
-                    if (!confirm('确定删除此订阅?')) return;
-                    try {
-                        const res = await fetch(`/api/subscriptions/${id}`, { method: 'DELETE' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('订阅已删除', 'success');
-                            await this.fetchSubscriptions();
-                            await this.fetchNodes();
-                        } else {
-                            this.showToast(data.error || '删除失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('删除失败: ' + e.message, 'error');
-                    }
-                },
-
-                async selectNode(name) {
-                    try {
-                        const res = await fetch(`/api/nodes/${encodeURIComponent(name)}/select`, { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('节点已切换', 'success');
-                            await this.fetchNodes();
-                            await this.fetchStatus();
-                            setTimeout(() => {
-                                this.fetchNodes();
-                                this.fetchStatus();
-                            }, 800);
-                        } else {
-                            this.showToast(data.error || '切换失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('切换失败: ' + e.message, 'error');
-                    }
-                },
-
-                async applyRecommendedNode() {
-                    try {
-                        const res = await fetch('/api/nodes/auto/apply-recommended', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('已切换到推荐节点', 'success');
-                            await this.fetchNodes();
-                            await this.fetchStatus();
-                            setTimeout(() => {
-                                this.fetchNodes();
-                                this.fetchStatus();
-                            }, 800);
-                        } else {
-                            this.showToast(data.error || '切换失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('切换失败: ' + e.message, 'error');
-                    }
-                },
-
-                async testNodeByName(nodeName, silent = false) {
-                    if (nodeName === 'auto') {
-                        return;
-                    }
-
-                    if (!silent) {
-                        this.showToast('开始测速: ' + nodeName, 'info');
-                    }
-
-                    // Find the actual node in the array for reactivity
-                    const nodeIndex = this.nodes.findIndex(n => n.name === nodeName);
-                    if (nodeIndex === -1) {
-                        if (!silent) {
-                            this.showToast('未找到节点', 'error');
-                        }
-                        return;
-                    }
-
-                    this.nodes[nodeIndex].testing = true;
-                    this.nodes[nodeIndex].latency = null;
-                    try {
-                        const res = await fetch(`/api/nodes/${encodeURIComponent(nodeName)}/test`, { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.nodes[nodeIndex].latency = data.data.latency;
-                            if (!silent) {
-                                await this.fetchStatus();
-                                await this.fetchNodes();
-                            }
-                            if (!silent) {
-                                this.showToast('测速完成', 'success');
-                            }
-                        } else {
-                            this.nodes[nodeIndex].latency = -1;
-                            if (!silent) {
-                                this.showToast('测速失败', 'error');
-                            }
-                        }
-                    } catch (e) {
-                        this.nodes[nodeIndex].latency = -1;
-                        if (!silent) {
-                            this.showToast('测速失败: ' + e.message, 'error');
-                        }
-                    }
-                    this.nodes[nodeIndex].testing = false;
-                },
-
-                async testAllNodes() {
-                    const realNodes = this.nodes.filter(node => !node.virtual);
-                    if (realNodes.length === 0) {
-                        this.showToast('没有可测速的节点', 'error');
-                        return;
-                    }
-
-                    this.showToast('开始测速...', 'info');
-                    this.testing = true;
-
-                    try {
-                        const res = await fetch('/api/nodes/test-all', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            await this.fetchStatus();
-                            await this.fetchNodes();
-                        } else {
-                            this.testing = false;
-                            this.showToast(data.error || '测速失败', 'error');
-                        }
-                    } catch (e) {
-                        this.testing = false;
-                        this.showToast('测速失败: ' + e.message, 'error');
-                    }
-                },
-
-                async setProxyMode(mode) {
-                    try {
-                        const res = await fetch('/api/rules/mode', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ mode })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('模式已切换', 'success');
-                            await this.fetchStatus();
-                        } else {
-                            this.showToast(data.error || '切换失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('切换失败: ' + e.message, 'error');
-                    }
-                },
-
-                async addCustomRule() {
-                    const rules = [...(this.rulesInfo.custom_rules || []), { ...this.newRule }];
-                    try {
-                        const res = await fetch('/api/rules', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(rules)
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('规则已添加', 'success');
-                            this.showAddRule = false;
-                            this.newRule = { type: 'domain', value: '', outbound: 'proxy' };
-                            await this.fetchRules();
-                        } else {
-                            this.showToast(data.error || '添加失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('添加失败: ' + e.message, 'error');
-                    }
-                },
-
-                async removeCustomRule(index) {
-                    const rules = [...this.rulesInfo.custom_rules];
-                    rules.splice(index, 1);
-                    try {
-                        const res = await fetch('/api/rules', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(rules)
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('规则已删除', 'success');
-                            await this.fetchRules();
-                        } else {
-                            this.showToast(data.error || '删除失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('删除失败: ' + e.message, 'error');
-                    }
-                },
-
-                // Bypass methods
-                async fetchBypass() {
-                    try {
-                        const res = await fetch('/api/bypass');
-                        const data = await res.json();
-                        if (data.success) {
-                            this.bypassInfo = data.data;
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch bypass:', e);
-                    }
-                },
-
-                async addBypass() {
-                    try {
-                        const res = await fetch('/api/bypass', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.newBypass)
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('绕过地址已添加', 'success');
-                            this.showAddBypass = false;
-                            this.newBypass = { address: '', comment: '' };
-                            await this.fetchBypass();
-                        } else {
-                            this.showToast(data.error || '添加失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('添加失败: ' + e.message, 'error');
-                    }
-                },
-
-                async removeBypass(address) {
-                    if (!confirm('确定删除此绕过地址?')) return;
-                    try {
-                        const res = await fetch('/api/bypass', {
-                            method: 'DELETE',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ address })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('绕过地址已删除', 'success');
-                            await this.fetchBypass();
-                        } else {
-                            this.showToast(data.error || '删除失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('删除失败: ' + e.message, 'error');
-                    }
-                },
-
-                async refreshBypass() {
-                    this.bypassLoading = true;
-                    try {
-                        const res = await fetch('/api/bypass/refresh', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('路由已刷新', 'success');
-                            await this.fetchBypass();
-                        } else {
-                            this.showToast(data.error || '刷新失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('刷新失败: ' + e.message, 'error');
-                    }
-                    this.bypassLoading = false;
-                },
-
-                async saveConfig() {
-                    try {
-                        const res = await fetch('/api/config', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.appConfig)
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('设置已保存', 'success');
-                            await this.fetchConfig();
-                            await this.fetchStatus();
-                            await this.fetchNodes();
-                        } else {
-                            this.showToast(data.error || '保存失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('保存失败: ' + e.message, 'error');
-                    }
-                },
-
-                async clearLogs() {
-                    try {
-                        await fetch('/api/logs/clear', { method: 'POST' });
-                        this.logs = [];
-                        this.showToast('日志已清空', 'success');
-                    } catch (e) {
-                        this.showToast('清空失败: ' + e.message, 'error');
-                    }
-                },
-
-                async clearCache() {
-                    if (this.clearingCache) return;
-                    this.clearingCache = true;
-                    try {
-                        const res = await fetch('/api/cache/clear', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('DNS 缓存已清空', 'success');
-                            // Refresh status since sing-box may have restarted
-                            await this.fetchStatus();
-                        } else {
-                            this.showToast(data.error || '清空缓存失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('清空缓存失败: ' + e.message, 'error');
-                    } finally {
-                        this.clearingCache = false;
-                    }
-                },
-
-                async fetchLogLevel() {
-                    try {
-                        const res = await fetch('/api/logs/level');
-                        const data = await res.json();
-                        if (data.success) {
-                            this.logLevel = data.data.level || 'info';
-                        }
-                    } catch (e) {
-                        console.error('Failed to fetch log level:', e);
-                    }
-                },
-
-                async setLogLevel() {
-                    try {
-                        const res = await fetch('/api/logs/level', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ level: this.logLevel })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            this.showToast('日志级别已设置为 ' + this.logLevel + '，重启后生效', 'success');
-                        } else {
-                            this.showToast(data.error || '设置失败', 'error');
-                        }
-                    } catch (e) {
-                        this.showToast('设置失败: ' + e.message, 'error');
-                    }
-                },
-
-                showToast(message, type = 'info') {
-                    this.toasts.push({ message, type });
-                    setTimeout(() => {
-                        this.toasts.shift();
-                    }, 3000);
-                },
-
-                getModeText(mode) {
-                    const modes = { rule: '规则', global: '全局', direct: '直连' };
-                    return modes[mode] || mode;
-                },
-
-                toggleNodeSort(field) {
-                    if (this.nodeSort.field === field) {
-                        this.nodeSort.field = null;
-                    } else {
-                        this.nodeSort.field = field;
-                    }
-                    this.saveNodeSort();
-                },
-
-                getNodeSortIndicator(field) {
-                    return this.nodeSort.field === field ? '↑' : '';
-                },
-
-                loadNodeSort() {
-                    try {
-                        const saved = localStorage.getItem('singboxA.nodeSort');
-                        if (!saved) return;
-                        const parsed = JSON.parse(saved);
-                        if (parsed && (parsed.field === 'name' || parsed.field === 'latency' || parsed.field === null)) {
-                            this.nodeSort = { field: parsed.field };
-                        }
-                    } catch (e) {
-                        console.error('Failed to load node sort:', e);
-                    }
-                },
-
-                saveNodeSort() {
-                    try {
-                        localStorage.setItem('singboxA.nodeSort', JSON.stringify(this.nodeSort));
-                    } catch (e) {
-                        console.error('Failed to save node sort:', e);
-                    }
-                },
-
-                getSelectedNodeText() {
-                    if (this.status.selected_mode === 'auto') {
-                        return '自动选择';
-                    }
-                    return this.status.selected_node || '未选择';
-                },
-
-                getTestURLModeLabel(mode) {
-                    const labels = {
-                        gstatic: 'Google Gstatic',
-                        youtube_ggpht: 'YouTube',
-                        skk: 'SKK',
-                        jsdelivr: 'jsDelivr',
-                        github: 'GitHub'
-                    };
-                    return labels[mode] || mode || 'Google Gstatic';
-                },
-
-                canApplyRecommended(node) {
-                    return Boolean(
-                        node &&
-                        node.virtual &&
-                        node.effective_node &&
-                        node.recommended_node &&
-                        node.effective_node !== node.recommended_node
-                    );
-                },
-
-                formatDate(dateStr) {
-                    if (!dateStr) return '';
-                    const date = new Date(dateStr);
-                    return date.toLocaleString('zh-CN');
-                },
-
-                formatLogTime(timeStr) {
-                    if (!timeStr) return '';
-                    const date = new Date(timeStr);
-                    return date.toLocaleTimeString('zh-CN');
-                },
-
-                get filteredLogs() {
-                    let filtered = this.logs;
-
-                    // Apply category filter
-                    switch (this.logFilter) {
-                        case 'dns':
-                            filtered = filtered.filter(log =>
-                                log.message.includes('dns:') ||
-                                log.message.includes('exchanged') ||
-                                log.message.includes('cached'));
-                            break;
-                        case 'outbound':
-                            filtered = filtered.filter(log =>
-                                log.message.includes('outbound/') ||
-                                log.message.includes('outbound connection'));
-                            break;
-                        case 'urltest':
-                            filtered = filtered.filter(log =>
-                                log.message.includes('urltest') ||
-                                log.message.includes('selected'));
-                            break;
-                        case 'important':
-                            filtered = filtered.filter(log =>
-                                log.level === 'warn' ||
-                                log.level === 'error' ||
-                                log.level === 'fatal' ||
-                                log.message.includes('selected') ||
-                                log.message.includes('started') ||
-                                log.message.includes('stopped'));
-                            break;
-                    }
-
-                    // Apply search filter
-                    if (this.logSearch.trim()) {
-                        const search = this.logSearch.toLowerCase();
-                        filtered = filtered.filter(log =>
-                            log.message.toLowerCase().includes(search));
-                    }
-
-                    return filtered;
-                },
-
-                get sortedNodes() {
-                    const autoNode = this.nodes.find(node => node.virtual);
-                    const realNodes = this.nodes.filter(node => !node.virtual);
-
-                    if (this.nodeSort.field === 'name') {
-                        realNodes.sort((a, b) => {
-                            const nameA = a.name === 'auto' ? '自动选择' : a.name;
-                            const nameB = b.name === 'auto' ? '自动选择' : b.name;
-                            return nameA.localeCompare(nameB, 'zh-CN');
-                        });
-                    } else if (this.nodeSort.field === 'latency') {
-                        realNodes.sort((a, b) => {
-                            const latencyA = typeof a.latency === 'number' && a.latency >= 0
-                                ? a.latency
-                                : Number.POSITIVE_INFINITY;
-                            const latencyB = typeof b.latency === 'number' && b.latency >= 0
-                                ? b.latency
-                                : Number.POSITIVE_INFINITY;
-                            if (latencyA !== latencyB) {
-                                return latencyA - latencyB;
-                            }
-                            return a.name.localeCompare(b.name, 'zh-CN');
-                        });
-                    }
-
-                    return autoNode ? [autoNode, ...realNodes] : realNodes;
-                },
-
-                highlightLog(message) {
-                    if (!this.logSearch.trim()) return message;
-                    const search = this.logSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`(${search})`, 'gi');
-                    return message.replace(regex, '<span class="bg-yellow-500/30 text-yellow-300">$1</span>');
-                },
-
-                formatBytes(bytes) {
-                    if (bytes === 0) return '0 B';
-                    const k = 1024;
-                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-                    const i = Math.floor(Math.log(bytes) / Math.log(k));
-                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-                },
-
-                formatDuration(startTime) {
-                    if (!startTime) return '-';
-                    const start = new Date(startTime);
-                    const now = new Date();
-                    const seconds = Math.floor((now - start) / 1000);
-                    if (seconds < 60) return seconds + 's';
-                    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
-                    const hours = Math.floor(seconds / 3600);
-                    const mins = Math.floor((seconds % 3600) / 60);
-                    return hours + 'h ' + mins + 'm';
-                }
-            };
-        }
-    </script>
-    <!-- Alpine.js -->
+    <script defer src="/static/js/app.js"></script>
     <script defer src="/static/js/alpine.min.js"></script>
 </body>
 </html>

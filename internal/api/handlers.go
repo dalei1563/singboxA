@@ -688,6 +688,11 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 			NodeSelectionPreference: nodeselector.NormalizePreference(h.cfgMgr.GetNodeSelectionPreference()),
 		})
 	case "PUT":
+		beforeCfg := h.cfgMgr.GetConfig()
+		nodes := h.updater.GetNodes()
+		beforeState := h.cfgMgr.GetState()
+		beforeResolved := nodeselector.Resolve(nodes, beforeState)
+
 		var payload ConfigPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			h.sendError(w, http.StatusBadRequest, "Invalid request body")
@@ -702,8 +707,9 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		h.syncTestCore(h.updater.GetNodes())
-		if err := h.ensureAutoSelectionLocked(h.updater.GetNodes()); err != nil {
+		nodes = h.updater.GetNodes()
+		h.syncTestCore(nodes)
+		if err := h.ensureAutoSelectionLocked(nodes); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -712,7 +718,13 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if (selectionChanged || h.cfgMgr.GetState().SelectedNode == nodeselector.AutoNodeTag) && h.processMgr.GetState() == singbox.StateRunning {
+		afterState := h.cfgMgr.GetState()
+		afterResolved := nodeselector.Resolve(nodes, afterState)
+		needsServiceRestart := selectionChanged ||
+			beforeResolved.EffectiveNode != afterResolved.EffectiveNode ||
+			runtimeConfigChanged(beforeCfg, h.cfgMgr.GetConfig())
+
+		if needsServiceRestart && h.processMgr.GetState() == singbox.StateRunning {
 			if err := h.generateConfig(); err != nil {
 				h.sendError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -1196,6 +1208,23 @@ func (h *Handlers) generateConfig() error {
 	return h.generator.SaveConfig(sbConfig, cfg.SingBox.ConfigPath)
 }
 
+func runtimeConfigChanged(before, after config.Config) bool {
+	if !reflect.DeepEqual(before.DNS, after.DNS) {
+		return true
+	}
+	if !reflect.DeepEqual(before.SingBox, after.SingBox) {
+		return true
+	}
+
+	return before.Proxy.TUNEnabled != after.Proxy.TUNEnabled ||
+		before.Proxy.TUNAddress != after.Proxy.TUNAddress ||
+		before.Proxy.TUNStack != after.Proxy.TUNStack ||
+		before.Proxy.AutoRoute != after.Proxy.AutoRoute ||
+		before.Proxy.StrictRoute != after.Proxy.StrictRoute ||
+		before.Proxy.SOCK5Port != after.Proxy.SOCK5Port ||
+		before.Proxy.HTTPProxyPort != after.Proxy.HTTPProxyPort
+}
+
 func (h *Handlers) nodeExists(name string) bool {
 	nodes := h.updater.GetNodes()
 	for _, node := range nodes {
@@ -1458,7 +1487,13 @@ func (h *Handlers) runNodeTests(nodes []singbox.Outbound, epoch int64) nodeTestS
 		Latency: make(map[string]int, len(nodes)),
 		Quality: make(map[string]config.NodeQualityResult, len(nodes)),
 	}
-	const workerCount = 5
+	workerCount := h.cfgMgr.GetConfig().Proxy.TestWorkers
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > 5 {
+		workerCount = 5
+	}
 	nodeChan := make(chan singbox.Outbound)
 	var wg sync.WaitGroup
 	var resultsMu sync.Mutex

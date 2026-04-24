@@ -54,6 +54,7 @@ type ProxyConfig struct {
 	SOCK5Port     int    `yaml:"socks5_port" json:"socks5_port"`         // SOCKS5 代理端口，0 表示禁用
 	HTTPProxyPort int    `yaml:"http_proxy_port" json:"http_proxy_port"` // HTTP 代理端口，0 表示禁用
 	TestURLMode   string `yaml:"test_url_mode" json:"test_url_mode"`     // gstatic, youtube_ggpht, skk, jsdelivr, github
+	TestWorkers   int    `yaml:"test_workers" json:"test_workers"`       // 1-5
 }
 
 type SubscriptionConfig struct {
@@ -183,6 +184,9 @@ func (m *Manager) loadConfig() error {
 	if cfg.Proxy.TestURLMode == "" {
 		cfg.Proxy.TestURLMode = "gstatic"
 	}
+	if cfg.Proxy.TestWorkers < 1 || cfg.Proxy.TestWorkers > 5 {
+		cfg.Proxy.TestWorkers = 3
+	}
 	m.config = &cfg
 	return nil
 }
@@ -244,6 +248,7 @@ func (m *Manager) defaultConfig() *Config {
 			SOCK5Port:     10808, // SOCKS5 端口
 			HTTPProxyPort: 10809, // HTTP 代理端口
 			TestURLMode:   "gstatic",
+			TestWorkers:   3,
 		},
 		Subscription: SubscriptionConfig{
 			AutoUpdate:     true,
@@ -311,6 +316,20 @@ func (m *Manager) GetConfig() Config {
 func (m *Manager) UpdateConfig(cfg Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	switch cfg.Proxy.TestURLMode {
+	case "", "gstatic", "youtube_ggpht", "skk", "jsdelivr", "github":
+	default:
+		cfg.Proxy.TestURLMode = "gstatic"
+	}
+	if cfg.Proxy.TestURLMode == "" {
+		cfg.Proxy.TestURLMode = "gstatic"
+	}
+	if cfg.Proxy.TestWorkers < 1 {
+		cfg.Proxy.TestWorkers = 1
+	}
+	if cfg.Proxy.TestWorkers > 5 {
+		cfg.Proxy.TestWorkers = 5
+	}
 	m.config = &cfg
 	return m.saveConfig()
 }

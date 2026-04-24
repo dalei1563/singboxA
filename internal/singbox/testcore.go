@@ -25,7 +25,6 @@ const (
 	TesterStateStarting = "starting"
 	TesterStateRunning  = "running"
 	TesterStateError    = "error"
-	testerWorkerCount   = 3
 )
 
 type TestCoreStatus struct {
@@ -62,8 +61,7 @@ var (
 func GetTestCoreManager() *TestCoreManager {
 	testCoreOnce.Do(func() {
 		testCoreInstance = &TestCoreManager{
-			state:   TesterStateStopped,
-			workers: make([]testWorker, testerWorkerCount),
+			state: TesterStateStopped,
 		}
 	})
 	return testCoreInstance
@@ -97,6 +95,8 @@ func (m *TestCoreManager) Initialize(binaryPath, dataDir string) error {
 		m.workers[i].configPath = filepath.Join(configDir, fmt.Sprintf("tester-config-%d.json", i+1))
 	}
 
+	m.ensureWorkerCountLocked(3)
+
 	m.initialized = true
 	return nil
 }
@@ -122,6 +122,8 @@ func (m *TestCoreManager) EnsureReady(nodes []Outbound, cfg config.Config) error
 	if len(realNodes) == 0 {
 		return m.stopLocked()
 	}
+
+	m.ensureWorkerCountLocked(normalizeTestWorkerCount(cfg.Proxy.TestWorkers))
 
 	payloads, versions, err := m.buildWorkerPayloads(realNodes, cfg)
 	if err != nil {
@@ -249,7 +251,7 @@ func (m *TestCoreManager) restartWorkerLocked(worker *testWorker, version string
 
 	worker.cmd = cmd
 	worker.cancel = cancel
-	go m.waitWorkerProcess(worker.index, cmd, version)
+	go m.waitWorkerProcess(worker.configPath, cmd, version)
 
 	if err := m.waitForWorkerReadyLocked(worker, 6*time.Second); err != nil {
 		_ = m.stopWorkerLocked(worker)
@@ -259,18 +261,24 @@ func (m *TestCoreManager) restartWorkerLocked(worker *testWorker, version string
 	return nil
 }
 
-func (m *TestCoreManager) waitWorkerProcess(index int, cmd *exec.Cmd, version string) {
+func (m *TestCoreManager) waitWorkerProcess(configPath string, cmd *exec.Cmd, version string) {
 	err := cmd.Wait()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	worker := &m.workers[index]
-	if worker.cmd == cmd {
-		worker.cmd = nil
-		worker.cancel = nil
-		if err != nil && worker.configVersion == version {
-			m.state = TesterStateError
-			m.lastError = fmt.Sprintf("tester worker %d exited: %v", index+1, err)
+	for i := range m.workers {
+		worker := &m.workers[i]
+		if worker.configPath != configPath {
+			continue
 		}
+		if worker.cmd == cmd {
+			worker.cmd = nil
+			worker.cancel = nil
+			if err != nil && worker.configVersion == version {
+				m.state = TesterStateError
+				m.lastError = fmt.Sprintf("tester worker %d exited: %v", i+1, err)
+			}
+		}
+		return
 	}
 }
 
@@ -320,6 +328,54 @@ func (m *TestCoreManager) stopLocked() error {
 		m.state = TesterStateStopped
 	}
 	return nil
+}
+
+func (m *TestCoreManager) ensureWorkerCountLocked(count int) {
+	count = normalizeTestWorkerCount(count)
+	current := len(m.workers)
+	if current == count {
+		return
+	}
+
+	if current > count {
+		for i := count; i < current; i++ {
+			_ = m.stopWorkerLocked(&m.workers[i])
+		}
+		m.workers = m.workers[:count]
+	}
+
+	if len(m.workers) < count {
+		configDir := filepath.Join(m.dataDir, "singbox")
+		for i := len(m.workers); i < count; i++ {
+			secret, err := randomSecret()
+			if err != nil {
+				m.state = TesterStateError
+				m.lastError = err.Error()
+				return
+			}
+			m.workers = append(m.workers, testWorker{
+				index:      i,
+				configPath: filepath.Join(configDir, fmt.Sprintf("tester-config-%d.json", i+1)),
+				secret:     secret,
+			})
+		}
+	}
+
+	for i := range m.workers {
+		m.workers[i].index = i
+		if m.workers[i].configPath == "" {
+			m.workers[i].configPath = filepath.Join(m.dataDir, "singbox", fmt.Sprintf("tester-config-%d.json", i+1))
+		}
+		if m.workers[i].secret == "" {
+			secret, err := randomSecret()
+			if err != nil {
+				m.state = TesterStateError
+				m.lastError = err.Error()
+				return
+			}
+			m.workers[i].secret = secret
+		}
+	}
 }
 
 func (m *TestCoreManager) stopWorkerLocked(worker *testWorker) error {
@@ -431,7 +487,18 @@ func (m *TestCoreManager) setError(err error) {
 	defer m.mu.Unlock()
 	if err != nil {
 		m.lastError = err.Error()
-		m.state = TesterStateError
+		allRunning := true
+		for _, worker := range m.workers {
+			if worker.cmd == nil || worker.cmd.Process == nil {
+				allRunning = false
+				break
+			}
+		}
+		if allRunning {
+			m.state = TesterStateRunning
+		} else {
+			m.state = TesterStateError
+		}
 	}
 }
 
@@ -503,4 +570,14 @@ func resolveTestURLForMode(mode string) string {
 	default:
 		return "https://www.gstatic.com/generate_204"
 	}
+}
+
+func normalizeTestWorkerCount(count int) int {
+	if count < 1 {
+		return 1
+	}
+	if count > 5 {
+		return 5
+	}
+	return count
 }

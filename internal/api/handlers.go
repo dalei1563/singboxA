@@ -332,15 +332,21 @@ func (h *Handlers) RefreshSubscriptions(w http.ResponseWriter, r *http.Request) 
 
 	h.invalidateNodeTesting()
 	result, err := h.updater.RefreshAll()
-	if err != nil {
+	if result.Updated {
+		h.handleRefreshResult(result)
+	}
+	if err != nil && !result.Updated {
 		h.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.handleRefreshResult(result)
 
-	h.sendJSON(w, map[string]string{
+	response := map[string]string{
 		"status": "refreshed",
-	})
+	}
+	if err != nil {
+		response["warning"] = err.Error()
+	}
+	h.sendJSON(w, response)
 }
 
 // Node handlers
@@ -702,6 +708,16 @@ func (h *Handlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
 		if err := h.cfgMgr.UpdateConfig(payload.Config); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		updatedCfg := h.cfgMgr.GetConfig()
+		if !reflect.DeepEqual(beforeCfg.SingBox, updatedCfg.SingBox) {
+			h.processMgr.Initialize(updatedCfg.SingBox.BinaryPath, updatedCfg.SingBox.ConfigPath)
+			if err := h.testCore.Stop(); err != nil {
+				log.Printf("Warning: failed to stop test core after sing-box config change: %v", err)
+			}
+			if err := h.testCore.Initialize(updatedCfg.SingBox.BinaryPath, h.cfgMgr.GetDataDir()); err != nil {
+				log.Printf("Warning: failed to reinitialize test core after sing-box config change: %v", err)
+			}
 		}
 		if err := h.cfgMgr.SetNodeSelectionPreference(nodeselector.NormalizePreference(payload.NodeSelectionPreference)); err != nil {
 			h.sendError(w, http.StatusInternalServerError, err.Error())
@@ -1163,13 +1179,17 @@ func (h *Handlers) runDNSFailureRecovery() {
 
 	switched := false
 	if state.SelectedNode == nodeselector.AutoNodeTag {
-		recommended := state.RecommendedAutoNode
-		if recommended == "" || !nodeExistsByTag(nodes, recommended) {
-			recommended = nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
+		recommended := nodeselector.PickRecommendedNode(nodes, state.NodeSelectionPreference, state.NodeTestResults, state.NodeQualityResults)
+		if recommended == "" && nodeExistsByTag(nodes, state.RecommendedAutoNode) {
+			recommended = state.RecommendedAutoNode
 		}
 		if recommended != "" && recommended != state.AppliedAutoNode {
 			if err := h.cfgMgr.SetAutoSelectionState(recommended, recommended); err == nil {
 				switched = true
+			}
+		} else if recommended != "" && state.RecommendedAutoNode != recommended {
+			if err := h.cfgMgr.SetAutoSelectionState(state.AppliedAutoNode, recommended); err != nil {
+				h.processMgr.AddLog("error", fmt.Sprintf("自愈恢复：更新推荐节点失败：%v", err))
 			}
 		}
 	}
@@ -1319,14 +1339,17 @@ func (h *Handlers) handleRefreshResult(result subscription.RefreshResult) {
 		log.Printf("Failed to normalize selection after subscription refresh: %v", err)
 		return
 	}
+	if err := h.ensureAutoSelectionLocked(result.AfterNodes); err != nil {
+		log.Printf("Failed to update auto selection after subscription refresh: %v", err)
+		return
+	}
 
 	afterState := h.cfgMgr.GetState()
 	afterResolved := nodeselector.Resolve(result.AfterNodes, afterState)
 
 	if h.processMgr.GetState() == singbox.StateRunning && h.shouldRestartAfterSubscriptionRefresh(result.BeforeNodes, result.AfterNodes, beforeResolved, afterResolved) {
-		if err := h.generateConfig(); err != nil {
-			log.Printf("Failed to generate config after subscription refresh: %v", err)
-		} else if err := h.processMgr.Restart(); err != nil {
+		clearCache := beforeResolved.EffectiveNode != afterResolved.EffectiveNode && afterResolved.EffectiveNode != ""
+		if err := h.restartRunningService(clearCache); err != nil {
 			log.Printf("Failed to restart sing-box after subscription refresh: %v", err)
 		}
 	}
@@ -1356,20 +1379,11 @@ func (h *Handlers) shouldRestartAfterSubscriptionRefresh(
 		return true
 	}
 
-	if afterResolved.SelectedMode != "manual" {
-		return false
-	}
-
-	beforeNode, beforeOK := findNodeByTag(beforeNodes, beforeResolved.EffectiveNode)
-	afterNode, afterOK := findNodeByTag(afterNodes, afterResolved.EffectiveNode)
-	if beforeOK != afterOK {
+	if beforeResolved.EffectiveNode != afterResolved.EffectiveNode {
 		return true
 	}
-	if !beforeOK || !afterOK {
-		return false
-	}
 
-	return !reflect.DeepEqual(beforeNode, afterNode)
+	return !reflect.DeepEqual(beforeNodes, afterNodes)
 }
 
 func findNodeByTag(nodes []singbox.Outbound, tag string) (singbox.Outbound, bool) {
@@ -1494,7 +1508,7 @@ func (h *Handlers) runNodeTests(nodes []singbox.Outbound, epoch int64) nodeTestS
 	if workerCount > 5 {
 		workerCount = 5
 	}
-	nodeChan := make(chan singbox.Outbound)
+	nodeChan := make(chan singbox.Outbound, len(nodes))
 	var wg sync.WaitGroup
 	var resultsMu sync.Mutex
 
@@ -1550,9 +1564,9 @@ func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) 
 			node, ok := findNodeByTag(nodes, applied)
 			if ok {
 				key := nodeselector.NodeKey(node)
-				if quality, exists := state.NodeQualityResults[key]; exists && quality.TestedAt != "" && quality.HTTPTTFB < 0 && recommended != "" && recommended != applied {
+				if quality, exists := state.NodeQualityResults[key]; exists && quality.TestedAt != "" && isUnhealthyLatency(quality.HTTPTTFB) && recommended != "" && recommended != applied {
 					switchTarget = recommended
-				} else if latency, exists := state.NodeTestResults[key]; exists && latency < 0 && recommended != "" && recommended != applied {
+				} else if latency, exists := state.NodeTestResults[key]; exists && isUnhealthyLatency(latency) && recommended != "" && recommended != applied {
 					switchTarget = recommended
 				}
 			}
@@ -1575,6 +1589,10 @@ func (h *Handlers) reconcileAutoSelectionAfterTesting(nodes []singbox.Outbound) 
 	afterResolved := nodeselector.Resolve(nodes, h.cfgMgr.GetState())
 	clearCache := beforeResolved.EffectiveNode != afterResolved.EffectiveNode && afterResolved.EffectiveNode != ""
 	return h.restartRunningService(clearCache)
+}
+
+func isUnhealthyLatency(latency int) bool {
+	return latency < 0 || latency >= 999
 }
 
 // Bypass handlers

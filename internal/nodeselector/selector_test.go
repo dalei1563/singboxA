@@ -52,3 +52,22 @@ func TestPickRecommendedNodeFallsBackToTCPLatency(t *testing.T) {
 		t.Fatalf("expected lower tcp latency node, got %q", got)
 	}
 }
+
+func TestPickRecommendedNodeDoesNotPreferFailedQualityResult(t *testing.T) {
+	nodes := []singbox.Outbound{
+		{Tag: "🇸🇬 新加坡A", Server: "sg-a.example.com", ServerPort: 443},
+		{Tag: "🇸🇬 新加坡B", Server: "sg-b.example.com", ServerPort: 443},
+	}
+
+	qualityResults := map[string]config.NodeQualityResult{
+		NodeKey(nodes[0]): {
+			HTTPTTFB: 999,
+			TestedAt: "2026-04-20T00:00:00Z",
+		},
+	}
+
+	got := PickRecommendedNode(nodes, "sg", nil, qualityResults)
+	if got != "🇸🇬 新加坡B" {
+		t.Fatalf("expected untested node to beat failed quality result, got %q", got)
+	}
+}

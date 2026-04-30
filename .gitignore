@@ -30,8 +30,12 @@ Thumbs.db
 
 # Data files (runtime)
 data/
+.local-data/
 *.db
 *.log
+
+# Local development binaries
+.local-bin/
 
 # Config with sensitive data
 config.yaml

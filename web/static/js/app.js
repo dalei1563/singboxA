@@ -26,25 +26,18 @@ function app() {
             tester_error: ''
         },
         navItems: [
-            { key: 'dashboard', label: '仪表盘', icon: '◫', desc: '总览与快捷控制' },
-            { key: 'nodes', label: '节点', icon: '◎', desc: '节点选择与测速' },
-            { key: 'subscriptions', label: '订阅', icon: '⛁', desc: '订阅源与更新' },
-            { key: 'rules', label: '路由', icon: '⇄', desc: '规则与模式' },
-            { key: 'bypass', label: '绕过', icon: '↷', desc: '完全绕过 TUN' },
-            { key: 'settings', label: '设置', icon: '⚙', desc: '系统与测速配置' },
-            { key: 'connections', label: '连接', icon: '≋', desc: '流量与会话' },
-            { key: 'logs', label: '日志', icon: '▤', desc: '实时运行日志' }
+            { key: 'dashboard', label: '仪表盘', icon: '<svg viewBox="0 0 24 24"><path d="M4 13h7V4H4zm9 7h7V4h-7zM4 20h7v-5H4z"></path></svg>' },
+            { key: 'nodes', label: '节点', icon: '<svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4c0 .73.2 1.4.53 2H6a4 4 0 1 0 3.46 6h5.08A4 4 0 1 0 18 9h-2.53A4 4 0 0 0 12 3zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM6 11a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm12 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"></path></svg>' },
+            { key: 'subscriptions', label: '订阅', icon: '<svg viewBox="0 0 24 24"><path d="M5 4h14v3H5zm0 5h14v3H5zm0 5h10v3H5z"></path></svg>' },
+            { key: 'settings', label: '设置', icon: '<svg viewBox="0 0 24 24"><path d="M19.4 13.5a7.8 7.8 0 0 0 .05-1.5l2-1.5-2-3.46-2.4.98a7.9 7.9 0 0 0-1.3-.76L15.4 4h-4l-.36 3.26c-.46.2-.9.45-1.3.76l-2.4-.98-2 3.46 2 1.5a7.8 7.8 0 0 0 .05 1.5l-2.05 1.54 2 3.46 2.45-1c.39.29.8.53 1.25.72L11.4 21h4l.36-3.28c.45-.19.86-.43 1.25-.72l2.45 1 2-3.46zM13.4 15.4a3.4 3.4 0 1 1-2.8-6.2 3.4 3.4 0 0 1 2.8 6.2z"></path></svg>' }
         ],
         pageMeta: {
-            dashboard: { title: '仪表盘', subtitle: '运行状态、模式切换与全局快捷操作' },
-            nodes: { title: '节点管理', subtitle: '选择节点、切换推荐候选与执行测速' },
-            subscriptions: { title: '订阅管理', subtitle: '管理订阅源、更新时间与节点来源' },
-            rules: { title: '规则与路由', subtitle: '内置规则、自定义规则与代理模式' },
-            bypass: { title: '绕过管理', subtitle: '配置完全绕过 TUN 的地址与路由刷新' },
-            settings: { title: '系统设置', subtitle: '测速目标、节点偏好、DNS 与代理参数' },
-            connections: { title: '连接管理', subtitle: '查看实时连接、流量统计与出口链路' },
-            logs: { title: '日志查看', subtitle: '跟踪运行日志、DNS 错误与服务事件' }
+            dashboard: { title: '仪表盘' },
+            nodes: { title: '节点' },
+            subscriptions: { title: '订阅' },
+            settings: { title: '设置' }
         },
+        settingsSection: 'basic',
         nodes: [],
         subscriptions: [],
         rulesInfo: {
@@ -103,17 +96,11 @@ function app() {
 
             this.$watch('currentTab', (newPage, oldPage) => {
                 this.saveCurrentTab();
-                if (newPage === 'logs') {
-                    this.fetchLogs();
-                    this.connectSSE();
-                } else if (oldPage === 'logs') {
-                    this.disconnectSSE();
+                if (oldPage === 'settings' && newPage !== 'settings') {
+                    this.stopSettingsActivity();
                 }
-                if (newPage === 'connections') {
-                    this.fetchConnections();
-                    this.startConnPolling();
-                } else if (oldPage === 'connections') {
-                    this.stopConnPolling();
+                if (newPage === 'settings') {
+                    this.startSettingsActivity();
                 }
                 if (newPage === 'nodes') {
                     this.fetchNodes();
@@ -125,7 +112,43 @@ function app() {
         },
 
         setTab(tab) {
+            if (!this.navItems.some((item) => item.key === tab)) {
+                tab = 'dashboard';
+            }
             this.currentTab = tab;
+        },
+
+        setSettingsSection(section) {
+            const sections = ['basic', 'routing', 'bypass', 'diagnostics'];
+            if (!sections.includes(section)) {
+                section = 'basic';
+            }
+            if (this.settingsSection === section) {
+                this.startSettingsActivity();
+                return;
+            }
+            this.stopSettingsActivity();
+            this.settingsSection = section;
+            this.startSettingsActivity();
+        },
+
+        startSettingsActivity() {
+            if (this.currentTab !== 'settings') return;
+            if (this.settingsSection === 'routing') {
+                this.fetchRules();
+            } else if (this.settingsSection === 'bypass') {
+                this.fetchBypass();
+            } else if (this.settingsSection === 'diagnostics') {
+                this.fetchLogs();
+                this.fetchConnections();
+                this.connectSSE();
+                this.startConnPolling();
+            }
+        },
+
+        stopSettingsActivity() {
+            this.disconnectSSE();
+            this.stopConnPolling();
         },
 
         loadCurrentTab() {
@@ -250,7 +273,7 @@ function app() {
                 if (this.logs.length > 200) {
                     this.logs = this.logs.slice(-200);
                 }
-                if (this.currentTab === 'logs') {
+                if (this.currentTab === 'settings' && this.settingsSection === 'diagnostics') {
                     clearTimeout(scrollTimeout);
                     scrollTimeout = setTimeout(() => {
                         const container = document.getElementById('log-container');
@@ -263,7 +286,7 @@ function app() {
 
             this.eventSource.onerror = () => {
                 this.eventSource.close();
-                if (this.currentTab === 'logs') {
+                if (this.currentTab === 'settings' && this.settingsSection === 'diagnostics') {
                     setTimeout(() => this.connectSSE(), 5000);
                 }
             };
@@ -313,7 +336,7 @@ function app() {
         async closeAllConnections() {
             if (!confirm('确定断开所有连接?')) return;
             try {
-                await fetch('http://127.0.0.1:9091/connections', { method: 'DELETE' });
+                await fetch('/api/clash/connections', { method: 'DELETE' });
                 await this.fetchConnections();
                 this.showToast('已断开所有连接', 'success');
             } catch (e) {

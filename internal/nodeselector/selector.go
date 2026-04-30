@@ -115,15 +115,19 @@ func normalizeRecommendedLatency(latency int) int {
 
 func recommendationPriority(node rankedNode) int {
 	switch {
-	case node.hasQuality && node.quality.HTTPTTFB >= 0:
+	case node.hasQuality && isUsableLatency(node.quality.HTTPTTFB):
 		return 0
-	case node.tested:
+	case node.tested && isUsableLatency(node.latency):
 		return 1
-	case node.hasQuality:
+	case !node.hasQuality && !node.tested:
 		return 2
 	default:
 		return 3
 	}
+}
+
+func isUsableLatency(latency int) bool {
+	return latency >= 0 && latency < 999
 }
 
 func NormalizePreference(preference string) string {

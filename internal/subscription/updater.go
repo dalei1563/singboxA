@@ -115,7 +115,7 @@ func (u *Updater) StartAutoUpdate(interval time.Duration) {
 				if err != nil {
 					log.Printf("Auto-update failed: %v", err)
 				}
-				if err == nil && result.Updated {
+				if result.Updated {
 					u.mu.Lock()
 					onRefresh := u.onRefresh
 					u.mu.Unlock()

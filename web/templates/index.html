@@ -10,31 +10,11 @@
 <body class="app-body" x-data="app()" x-init="init()">
     <div class="app-shell">
         <aside class="app-sidebar">
-            <div class="brand-panel">
+            <div class="brand-row">
                 <div class="brand-mark">S</div>
-                <div>
-                    <h1 class="brand-title">SingBoxA</h1>
-                    <p class="brand-subtitle">Lightweight Console for sing-box</p>
-                </div>
-            </div>
-
-            <div class="sidebar-health">
-                <div class="sidebar-health-item">
-                    <span class="sidebar-health-label">服务</span>
-                    <span class="status-chip" :class="getStatusBadgeClass()"
-                          x-text="status.state === 'running' ? '运行中' : '已停止'"></span>
-                </div>
-                <div class="sidebar-health-item">
-                    <span class="sidebar-health-label">模式</span>
-                    <span class="sidebar-health-value" x-text="getModeText(status.proxy_mode)"></span>
-                </div>
-                <div class="sidebar-health-item">
-                    <span class="sidebar-health-label">节点</span>
-                    <span class="sidebar-health-value" x-text="nodes.length"></span>
-                </div>
-                <div class="sidebar-health-item">
-                    <span class="sidebar-health-label">测速内核</span>
-                    <span class="status-chip" :class="getTesterBadgeClass()" x-text="getTesterLabel()"></span>
+                <div class="brand-copy">
+                    <h1>SingBoxA</h1>
+                    <span x-text="status.state === 'running' ? '运行中' : '已停止'"></span>
                 </div>
             </div>
 
@@ -42,1061 +22,779 @@
                 <template x-for="item in navItems" :key="item.key">
                     <button @click="setTab(item.key)"
                             :class="currentTab === item.key ? 'is-active' : ''"
-                            class="sidebar-nav-item">
-                        <span class="sidebar-nav-icon" x-text="item.icon"></span>
-                        <span class="sidebar-nav-copy">
-                            <span class="sidebar-nav-label" x-text="item.label"></span>
-                            <span class="sidebar-nav-desc" x-text="item.desc"></span>
-                        </span>
+                            class="nav-item">
+                        <span class="nav-icon" x-html="item.icon"></span>
+                        <span x-text="item.label"></span>
                     </button>
                 </template>
             </nav>
 
-            <div class="sidebar-footer">
-                <div class="sidebar-footer-card">
-                    <div class="sidebar-footer-label">当前节点</div>
-                    <div class="sidebar-footer-value" x-text="getSelectedNodeText()"></div>
-                    <div x-show="status.selected_mode === 'auto' && status.effective_node"
-                         class="sidebar-footer-muted">
-                        命中: <span x-text="status.effective_node"></span>
-                    </div>
+            <div class="sidebar-status">
+                <div>
+                    <span>模式</span>
+                    <strong x-text="getModeText(status.proxy_mode)"></strong>
+                </div>
+                <div>
+                    <span>节点</span>
+                    <strong x-text="nodes.length"></strong>
+                </div>
+                <div>
+                    <span>当前</span>
+                    <strong class="truncate" x-text="getSelectedNodeText()"></strong>
                 </div>
             </div>
         </aside>
 
-        <section class="workspace-shell">
+        <section class="workspace">
             <header class="workspace-header">
-                <div class="workspace-heading">
-                    <p class="workspace-kicker">sing-box control plane</p>
-                    <h2 class="workspace-title" x-text="getPageTitle()"></h2>
-                    <p class="workspace-subtitle" x-text="getPageSubtitle()"></p>
-                </div>
-
-                <div class="workspace-toolbar">
-                    <div class="toolbar-summary">
-                        <span class="toolbar-pill" :class="getStatusBadgeClass()"
-                              x-text="status.state === 'running' ? '内核运行中' : '内核已停止'"></span>
-                        <span class="toolbar-pill is-neutral" x-text="'测速目标 · ' + getCurrentTestURLModeLabel()"></span>
-                    </div>
-                    <div class="toolbar-actions">
-                        <button @click="startService()"
-                                :disabled="status.state === 'running' || loading"
-                                class="toolbar-button is-success">
-                            启动
-                        </button>
-                        <button @click="stopService()"
-                                :disabled="status.state !== 'running' || loading"
-                                class="toolbar-button is-danger">
-                            停止
-                        </button>
-                        <button @click="restartService()"
-                                :disabled="loading"
-                                class="toolbar-button is-primary">
-                            重启
-                        </button>
-                    </div>
+                <h2 x-text="getPageTitle()"></h2>
+                <div class="header-meta">
+                    <span class="status-chip" :class="getStatusBadgeClass()"
+                          x-text="status.state === 'running' ? '服务运行中' : '服务已停止'"></span>
+                    <span class="meta-chip" x-text="'测速: ' + getCurrentTestURLModeLabel()"></span>
                 </div>
             </header>
 
             <main class="workspace-main">
-            <!-- Dashboard -->
-            <div x-show="currentTab === 'dashboard'" class="page-view">
-                <div class="nodes-summary-grid mb-6">
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">服务状态</span>
-                        <strong class="mini-stat-value" :class="status.state === 'running' ? 'text-status-running' : 'text-light-muted'"
-                                x-text="status.state === 'running' ? '运行中' : '已停止'"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">节点数量</span>
-                        <strong class="mini-stat-value" x-text="nodes.length"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">当前节点</span>
-                        <strong class="mini-stat-value truncate" x-text="getSelectedNodeText()"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">代理模式</span>
-                        <strong class="mini-stat-value" x-text="getModeText(status.proxy_mode)"></strong>
-                    </div>
-                </div>
+                <section x-show="currentTab === 'dashboard'" class="page-view">
+                    <div class="dashboard-grid">
+                        <section class="control-panel span-2">
+                            <div class="panel-title-row">
+                                <div>
+                                    <h3>运行控制</h3>
+                                    <p x-text="getDashboardAdvice()"></p>
+                                </div>
+                                <span class="status-chip" :class="getStatusBadgeClass()"
+                                      x-text="status.state === 'running' ? '运行中' : '已停止'"></span>
+                            </div>
 
-                <div class="bg-white rounded-lg p-5 border border-light-border mb-6">
-                    <div class="simple-overview">
-                        <div>
-                            <h3 class="simple-overview-title">系统状态</h3>
-                            <p class="simple-overview-text" x-text="getDashboardAdvice()"></p>
+                            <div class="action-row">
+                                <button @click="startService()"
+                                        :disabled="status.state === 'running' || loading"
+                                        class="button is-success">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M8 5v14l11-7z"></path>
+                                    </svg>
+                                    启动
+                                </button>
+                                <button @click="stopService()"
+                                        :disabled="status.state !== 'running' || loading"
+                                        class="button is-danger">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M6 6h12v12H6z"></path>
+                                    </svg>
+                                    停止
+                                </button>
+                                <button @click="restartService()"
+                                        :disabled="loading"
+                                        class="button is-primary">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3z"></path>
+                                    </svg>
+                                    重启
+                                </button>
+                                <button @click="refreshSubscriptions()"
+                                        :disabled="loading"
+                                        class="button">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" :class="loading ? 'spin' : ''">
+                                        <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3z"></path>
+                                    </svg>
+                                    刷新订阅
+                                </button>
+                            </div>
+                        </section>
+
+                        <section class="metric-panel">
+                            <span>当前节点</span>
+                            <strong x-text="getSelectedNodeText()"></strong>
+                            <small x-show="status.effective_node" x-text="'命中 ' + status.effective_node"></small>
+                        </section>
+
+                        <section class="metric-panel">
+                            <span>订阅</span>
+                            <strong x-text="subscriptions.length"></strong>
+                            <small x-text="getAutoUpdateSubscriptionCount() + ' 个自动更新'"></small>
+                        </section>
+
+                        <section class="mode-panel span-2">
+                            <div class="panel-title-row compact">
+                                <h3>代理模式</h3>
+                                <span x-text="getModeText(status.proxy_mode)"></span>
+                            </div>
+                            <div class="segmented">
+                                <button @click="setProxyMode('rule')"
+                                        :class="status.proxy_mode === 'rule' ? 'is-active' : ''">
+                                    规则
+                                </button>
+                                <button @click="setProxyMode('global')"
+                                        :class="status.proxy_mode === 'global' ? 'is-active' : ''">
+                                    全局
+                                </button>
+                                <button @click="setProxyMode('direct')"
+                                        :class="status.proxy_mode === 'direct' ? 'is-active' : ''">
+                                    直连
+                                </button>
+                            </div>
+                        </section>
+
+                        <section class="metric-panel">
+                            <span>节点</span>
+                            <strong x-text="nodes.length"></strong>
+                            <small x-text="getHealthyNodeCount() + ' 个健康'"></small>
+                        </section>
+
+                        <section class="metric-panel">
+                            <span>测速内核</span>
+                            <strong x-text="getTesterLabel()"></strong>
+                            <small x-show="status.testing_total > 0"
+                                   x-text="status.testing_completed + '/' + status.testing_total"></small>
+                        </section>
+                    </div>
+                </section>
+
+                <section x-show="currentTab === 'nodes'" x-cloak class="page-view">
+                    <div class="page-toolbar">
+                        <div class="toolbar-stats">
+                            <div>
+                                <span>策略</span>
+                                <strong x-text="status.selected_mode === 'auto' ? '自动选择' : '手动节点'"></strong>
+                            </div>
+                            <div>
+                                <span>推荐</span>
+                                <strong x-text="status.recommended_node || '-'"></strong>
+                            </div>
+                            <div>
+                                <span>测速</span>
+                                <strong x-text="status.testing_total > 0 ? status.testing_completed + '/' + status.testing_total : getCurrentTestURLModeLabel()"></strong>
+                            </div>
                         </div>
-                        <div class="simple-overview-meta">
-                            <span class="toolbar-pill is-neutral">自动更新订阅 · <span x-text="getAutoUpdateSubscriptionCount()"></span></span>
-                            <span class="toolbar-pill is-neutral">已测速节点 · <span x-text="getTestedNodeCount()"></span></span>
-                            <span class="toolbar-pill is-neutral">健康节点 · <span x-text="getHealthyNodeCount()"></span></span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Quick actions -->
-                <div class="bg-white rounded-lg p-5 border border-light-border mb-6">
-                    <div class="section-heading">
-                        <div>
-                            <h3 class="text-lg font-semibold">快捷操作</h3>
-                            <p class="section-subtitle">保留最常用的启动、重启和订阅同步动作。</p>
-                        </div>
-                    </div>
-                    <div class="action-grid">
-                        <button @click="startService()"
-                                :disabled="status.state === 'running' || loading"
-                                class="action-tile action-tile-start">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                            <span>启动服务</span>
-                        </button>
-
-                        <button @click="stopService()"
-                                :disabled="status.state !== 'running' || loading"
-                                class="action-tile action-tile-stop">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
-                            </svg>
-                            <span>停止服务</span>
-                        </button>
-
-                        <button @click="restartService()"
-                                :disabled="loading"
-                                class="action-tile action-tile-restart">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                            </svg>
-                            <span>重启服务</span>
-                        </button>
-
-                        <button @click="refreshSubscriptions()"
-                                :disabled="loading"
-                                class="action-tile action-tile-sync">
-                            <svg class="w-5 h-5" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                            </svg>
-                            <span>刷新订阅</span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Proxy mode -->
-                <div class="bg-white rounded-lg p-5 border border-light-border">
-                    <div class="section-heading">
-                        <div>
-                            <h3 class="text-lg font-semibold">代理模式</h3>
-                            <p class="section-subtitle">在规则、全局和直连之间快速切换。</p>
-                        </div>
-                    </div>
-                    <div class="flex gap-4">
-                        <button @click="setProxyMode('rule')"
-                                :class="status.proxy_mode === 'rule' ? 'mode-card is-active' : 'mode-card'"
-                                class="flex-1 p-4 rounded-lg border-2 transition-colors">
-                            <p class="font-semibold">规则模式</p>
-                            <p class="text-sm" :class="status.proxy_mode === 'rule' ? 'text-white/80' : 'text-light-muted'">根据规则自动分流</p>
-                        </button>
-
-                        <button @click="setProxyMode('global')"
-                                :class="status.proxy_mode === 'global' ? 'mode-card is-active' : 'mode-card'"
-                                class="flex-1 p-4 rounded-lg border-2 transition-colors">
-                            <p class="font-semibold">全局模式</p>
-                            <p class="text-sm" :class="status.proxy_mode === 'global' ? 'text-white/80' : 'text-light-muted'">所有流量走代理</p>
-                        </button>
-
-                        <button @click="setProxyMode('direct')"
-                                :class="status.proxy_mode === 'direct' ? 'mode-card is-active' : 'mode-card'"
-                                class="flex-1 p-4 rounded-lg border-2 transition-colors">
-                            <p class="font-semibold">直连模式</p>
-                            <p class="text-sm" :class="status.proxy_mode === 'direct' ? 'text-white/80' : 'text-light-muted'">所有流量直连</p>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Nodes page -->
-            <div x-show="currentTab === 'nodes'" x-cloak class="page-view">
-                <div class="panel-header-row">
-                    <div>
-                        <h2 class="text-2xl font-bold">节点管理</h2>
-                        <p class="section-subtitle">围绕自动选择、推荐候选和 HTTP 延迟来管理节点。</p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span x-show="status.testing_total > 0"
-                              class="text-sm text-light-muted">
-                            测速进度: <span x-text="status.testing_completed + '/' + status.testing_total"></span>
-                        </span>
-                        <span x-show="appConfig && appConfig.proxy && appConfig.proxy.test_url_mode"
-                              class="text-sm text-light-muted">
-                            当前测速目标: <span x-text="getCurrentTestURLModeLabel()"></span>
-                        </span>
                         <button @click="testAllNodes()"
                                 :disabled="loading || testing"
-                                class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-white">
-                            <svg class="w-4 h-4" :class="testing ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                class="button is-primary">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" :class="testing ? 'spin' : ''">
+                                <path d="M13 2 4 14h7l-1 8 10-13h-7z"></path>
                             </svg>
                             一键测速
                         </button>
                     </div>
-                </div>
 
-                <div class="nodes-summary-grid mb-6">
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">当前策略</span>
-                        <strong class="mini-stat-value" x-text="status.selected_mode === 'auto' ? '自动选择' : '手动节点'"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">当前命中</span>
-                        <strong class="mini-stat-value truncate" x-text="status.effective_node || status.selected_node || '-'"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">推荐候选</span>
-                        <strong class="mini-stat-value truncate" x-text="status.recommended_node || '-'"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">测速线程</span>
-                        <strong class="mini-stat-value" x-text="getCurrentTestWorkerCount() + ' 个'"></strong>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-lg border border-light-border overflow-hidden">
-                    <div class="table-toolbar">
-                        <div>
-                            <h3 class="table-toolbar-title">节点列表</h3>
-                            <p class="table-toolbar-subtitle">自动选择始终固定在顶部，其他节点可按名称或 HTTP 延迟排序。</p>
-                        </div>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead class="bg-gray-100">
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">
-                                        <button @click="toggleNodeSort('name')"
-                                                class="inline-flex items-center gap-1 hover:text-orange-500 transition-colors">
-                                            <span>节点名称</span>
-                                            <span x-text="getNodeSortIndicator('name')" class="text-xs text-light-muted"></span>
-                                        </button>
-                                    </th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">类型</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">订阅名称</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">服务器</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">
-                                        <button @click="toggleNodeSort('latency')"
-                                                class="inline-flex items-center gap-1 hover:text-orange-500 transition-colors">
-                                            <span>HTTP延迟</span>
-                                            <span x-text="getNodeSortIndicator('latency')" class="text-xs text-light-muted"></span>
-                                        </button>
-                                    </th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-light-border">
-                                <template x-for="node in sortedNodes" :key="node.name">
-                                    <tr :class="node.selected ? 'bg-row-selected/30' : 'hover:bg-gray-100/50'" class="transition-colors">
-                                        <td class="px-4 py-3">
-                                            <div class="flex items-center gap-2">
-                                                <span x-show="node.selected" class="text-orange-500">
-                                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                                    </svg>
-                                                </span>
-                                                <span x-text="node.name === 'auto' ? '自动选择' : node.name" class="truncate max-w-xs"></span>
-                                            </div>
-                                            <p x-show="node.virtual && node.effective_node" class="text-xs text-light-muted mt-1">
-                                                当前命中: <span x-text="node.effective_node"></span>
-                                            </p>
-                                            <p x-show="node.virtual && node.recommended_node && node.recommended_node !== node.effective_node" class="text-xs text-light-muted mt-1">
-                                                推荐候选: <span x-text="node.recommended_node"></span>
-                                                <span x-show="node.recommended_http_ttfb > 0" x-text="' (' + node.recommended_http_ttfb + 'ms)'"></span>
-                                            </p>
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <span x-text="node.type" class="px-2 py-1 bg-gray-100 rounded text-sm"></span>
-                                        </td>
-                                        <td class="px-4 py-3 text-light-muted text-sm">
-                                            <span x-show="node.subscription_names && node.subscription_names.length"
-                                                  x-text="node.subscription_names.join(', ')"
-                                                  class="truncate max-w-xs block"></span>
-                                            <span x-show="!node.subscription_names || !node.subscription_names.length">-</span>
-                                        </td>
-                                        <td class="px-4 py-3 text-light-muted">
-                                            <span x-show="!node.virtual" x-text="node.server + ':' + node.port" class="truncate max-w-xs block"></span>
-                                            <span x-show="node.virtual" class="truncate max-w-xs block">根据测速结果自动选择最优节点</span>
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <span x-show="node.latency > 0 && node.latency < 999" x-text="node.latency + 'ms'"
-                                                  :class="'latency-chip ' + getNodeLatencyClass(node.latency)"></span>
-                                            <span x-show="node.latency === 999" class="latency-chip is-bad">999ms</span>
-                                            <span x-show="node.latency === -1" class="latency-chip is-bad">超时</span>
-                                            <span x-show="!node.latency && node.latency !== -1" class="latency-chip is-idle">未测</span>
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <div class="flex gap-2">
-                                                <button @click="selectNode(node.name)"
-                                                        :disabled="node.selected"
-                                                        class="px-3 py-1 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors text-orange-500">
-                                                    <span x-text="node.virtual ? '启用' : '选择'"></span>
-                                                </button>
-                                                <button @click="applyRecommendedNode()"
-                                                        x-show="node.virtual"
-                                                        :disabled="!canApplyRecommended(node)"
-                                                        class="px-3 py-1 bg-white border-2 border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors text-gray-600">
-                                                    切换到推荐
-                                                </button>
-                                                <button @click="testNodeByName(node.name)"
-                                                        x-show="!node.virtual"
-                                                        :disabled="node.testing"
-                                                        class="px-3 py-1 bg-white border-2 border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors flex items-center gap-1 text-gray-600">
-                                                    <span x-show="node.testing" class="spinner"></span>
-                                                    <span x-show="!node.testing">测速</span>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </template>
-                                <tr x-show="nodes.length === 0">
-                                    <td colspan="6" class="px-4 py-8 text-center text-light-muted">
-                                        暂无节点，请先添加订阅
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Subscriptions page -->
-            <div x-show="currentTab === 'subscriptions'" x-cloak class="page-view">
-                <div class="panel-header-row">
-                    <div>
-                        <h2 class="text-2xl font-bold">订阅管理</h2>
-                        <p class="section-subtitle">统一查看订阅来源、自动更新状态和最近同步情况。</p>
-                    </div>
-                    <button @click="showAddSubscription = true"
-                            class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg transition-colors flex items-center gap-2 text-orange-500">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        添加订阅
-                    </button>
-                </div>
-
-                <div class="nodes-summary-grid mb-6">
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">订阅总数</span>
-                        <strong class="mini-stat-value" x-text="subscriptions.length"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">自动更新</span>
-                        <strong class="mini-stat-value" x-text="getAutoUpdateSubscriptionCount()"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">24h 内更新</span>
-                        <strong class="mini-stat-value" x-text="getRecentSubscriptionCount()"></strong>
-                    </div>
-                    <div class="mini-stat-card">
-                        <span class="mini-stat-label">当前节点来源</span>
-                        <strong class="mini-stat-value truncate" x-text="subscriptions.length ? '已连接订阅源' : '-'"></strong>
-                    </div>
-                </div>
-
-                <div class="space-y-4">
-                    <template x-for="sub in subscriptions" :key="sub.id">
-                        <div class="bg-white rounded-lg p-4 border border-light-border subscription-card">
-                            <div class="flex justify-between items-start gap-6">
-                                <div class="flex-1">
-                                    <div class="subscription-card-head">
-                                        <h3 class="font-semibold" x-text="sub.name"></h3>
-                                        <span class="subscription-state-pill"
-                                              :class="getSubscriptionStatusClass(sub)"
-                                              x-text="sub.auto_update ? '自动更新中' : '手动维护'"></span>
-                                    </div>
-                                    <p class="text-sm text-light-muted truncate" x-text="sub.url"></p>
-                                    <div class="subscription-meta-grid">
-                                        <div class="subscription-meta-item">
-                                            <span class="subscription-meta-label">自动更新</span>
-                                            <span class="subscription-meta-value" x-text="sub.auto_update ? '开启' : '关闭'"></span>
-                                        </div>
-                                        <div class="subscription-meta-item">
-                                            <span class="subscription-meta-label">更新间隔</span>
-                                            <span class="subscription-meta-value">
-                                                <span x-text="sub.auto_update ? (sub.update_interval || 60) : '-'"></span><span x-show="sub.auto_update"> 分钟</span>
-                                            </span>
-                                        </div>
-                                        <div class="subscription-meta-item" x-show="sub.updated_at">
-                                            <span class="subscription-meta-label">上次更新</span>
-                                            <span class="subscription-meta-value" x-text="formatDate(sub.updated_at)"></span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="flex gap-2 ml-4">
-                                    <button @click="openEditSubscription(sub)"
-                                            class="p-2 hover:bg-gray-100 rounded transition-colors">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.586 2.586a2 2 0 112.828 2.828L12 14.828l-4 1 1-4 9.586-9.414z"/>
-                                        </svg>
-                                    </button>
-                                    <button @click="refreshSubscription(sub)"
-                                            class="p-2 hover:bg-gray-100 rounded transition-colors">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                                        </svg>
-                                    </button>
-                                    <button @click="deleteSubscription(sub.id)"
-                                            class="p-2 hover:bg-red-600/20 text-red-400 rounded transition-colors">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-
-                    <div x-show="subscriptions.length === 0" class="bg-white rounded-lg p-8 border border-light-border text-center">
-                        <p class="text-light-muted">暂无订阅</p>
-                        <button @click="showAddSubscription = true"
-                                class="mt-4 px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors">
-                            添加第一个订阅
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Add subscription modal -->
-                <div x-show="showAddSubscription" x-cloak
-                     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-                     @click.self="showAddSubscription = false">
-                    <div class="bg-white rounded-lg p-6 w-full max-w-md border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">添加订阅</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">订阅名称</label>
-                                <input type="text" x-model="newSubscription.name"
-                                       placeholder="可选，自动生成"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">订阅地址</label>
-                                <input type="url" x-model="newSubscription.url"
-                                       placeholder="https://..."
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                            <div>
-                                <label class="flex items-center gap-3 text-sm text-light-muted mb-1">
-                                    <input type="checkbox" x-model="newSubscription.auto_update"
-                                           class="w-4 h-4 rounded border-light-border bg-gray-50">
-                                    自动更新
-                                </label>
-                            </div>
-                            <div x-show="newSubscription.auto_update">
-                                <label class="block text-sm text-light-muted mb-1">更新间隔 (分钟)</label>
-                                <input type="number" x-model.number="newSubscription.update_interval"
-                                       min="5" placeholder="60"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                        </div>
-                        <div class="flex justify-end gap-3 mt-6">
-                            <button @click="showAddSubscription = false"
-                                    class="px-4 py-2 bg-gray-100 hover:bg-gray-200/30 rounded-lg transition-colors">
-                                取消
-                            </button>
-                            <button @click="addSubscription()"
-                                    :disabled="!newSubscription.url"
-                                    class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg transition-colors">
-                                添加
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Edit subscription modal -->
-                <div x-show="showEditSubscription" x-cloak
-                     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-                     @click.self="showEditSubscription = false">
-                    <div class="bg-white rounded-lg p-6 w-full max-w-md border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">修改订阅</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">订阅名称</label>
-                                <input type="text" x-model="editingSubscription.name"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">订阅地址</label>
-                                <input type="url" x-model="editingSubscription.url"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                            <div>
-                                <label class="flex items-center gap-3 text-sm text-light-muted mb-1">
-                                    <input type="checkbox" x-model="editingSubscription.auto_update"
-                                           class="w-4 h-4 rounded border-light-border bg-gray-50">
-                                    自动更新
-                                </label>
-                            </div>
-                            <div x-show="editingSubscription.auto_update">
-                                <label class="block text-sm text-light-muted mb-1">更新间隔 (分钟)</label>
-                                <input type="number" x-model.number="editingSubscription.update_interval"
-                                       min="5"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                        </div>
-                        <div class="flex justify-end gap-3 mt-6">
-                            <button @click="showEditSubscription = false"
-                                    class="px-4 py-2 bg-gray-100 hover:bg-gray-200/30 rounded-lg transition-colors">
-                                取消
-                            </button>
-                            <button @click="updateSubscription()"
-                                    :disabled="!editingSubscription.url"
-                                    class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg transition-colors">
-                                保存
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Rules page -->
-            <div x-show="currentTab === 'rules'" x-cloak class="page-view">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold">规则设置</h2>
-                    <div class="flex items-center gap-4">
-                        <span x-show="rulesInfo.last_rule_update" class="text-sm text-light-muted">
-                            上次更新: <span x-text="rulesInfo.last_rule_update"></span>
-                        </span>
-                        <button @click="refreshRules()"
-                                class="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors flex items-center gap-2 text-white">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                            </svg>
-                            更新规则
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Default rules -->
-                <div class="bg-white rounded-lg p-6 border border-light-border mb-6">
-                    <h3 class="text-lg font-semibold mb-4">内置规则</h3>
-                    <div class="space-y-3">
-                        <template x-for="rule in rulesInfo.default_rules" :key="rule.name">
-                            <div class="flex items-center justify-between py-2 border-b border-light-border last:border-0">
-                                <div>
-                                    <p class="font-medium" x-text="rule.name"></p>
-                                    <p class="text-sm text-light-muted" x-text="rule.description"></p>
-                                </div>
-                                <span class="px-2 py-1 bg-green-600/20 text-green-400 rounded text-sm">启用</span>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-
-                <!-- Custom rules -->
-                <div class="bg-white rounded-lg p-6 border border-light-border">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold">自定义规则</h3>
-                        <button @click="showAddRule = true"
-                                class="px-3 py-1 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg text-sm transition-colors text-orange-500">
-                            添加规则
-                        </button>
-                    </div>
-
-                    <div class="space-y-2">
-                        <template x-for="(rule, index) in rulesInfo.custom_rules" :key="index">
-                            <div class="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
-                                <div class="flex items-center gap-3">
-                                    <span class="px-2 py-1 bg-gray-100 rounded text-xs" x-text="rule.type"></span>
-                                    <span x-text="rule.value"></span>
-                                    <span class="text-light-muted">→</span>
-                                    <span :class="rule.outbound === 'proxy' ? 'text-orange-500' : rule.outbound === 'direct' ? 'text-green-400' : 'text-red-400'"
-                                          x-text="rule.outbound"></span>
-                                </div>
-                                <button @click="removeCustomRule(index)"
-                                        class="p-1 hover:bg-red-600/20 text-red-400 rounded transition-colors">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </template>
-                        <p x-show="!rulesInfo.custom_rules || rulesInfo.custom_rules.length === 0"
-                           class="text-light-muted text-center py-4">暂无自定义规则</p>
-                    </div>
-                </div>
-
-                <!-- Add rule modal -->
-                <div x-show="showAddRule" x-cloak
-                     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-                     @click.self="showAddRule = false">
-                    <div class="bg-white rounded-lg p-6 w-full max-w-md border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">添加自定义规则</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">规则类型</label>
-                                <select x-model="newRule.type"
-                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                                    <option value="domain">域名 (完整匹配)</option>
-                                    <option value="domain_suffix">域名后缀</option>
-                                    <option value="ip_cidr">IP CIDR</option>
-                                    <option value="geosite">Geosite</option>
-                                    <option value="geoip">GeoIP</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">值</label>
-                                <input type="text" x-model="newRule.value"
-                                       placeholder="example.com"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">出口</label>
-                                <select x-model="newRule.outbound"
-                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                                    <option value="proxy">代理</option>
-                                    <option value="direct">直连</option>
-                                    <option value="block">阻止</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="flex justify-end gap-3 mt-6">
-                            <button @click="showAddRule = false"
-                                    class="px-4 py-2 bg-gray-100 hover:bg-gray-200/30 rounded-lg transition-colors">
-                                取消
-                            </button>
-                            <button @click="addCustomRule()"
-                                    :disabled="!newRule.value"
-                                    class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg transition-colors">
-                                添加
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Bypass page -->
-            <div x-show="currentTab === 'bypass'" x-cloak class="page-view">
-                <div class="flex justify-between items-center mb-6">
-                    <div>
-                        <h2 class="text-2xl font-bold">绕过管理</h2>
-                        <p class="text-sm text-light-muted mt-1">完全绕过 TUN 的地址（用于 FTP 等特殊协议）</p>
-                    </div>
-                    <div class="flex gap-2">
-                        <button @click="refreshBypass()"
-                                :disabled="bypassLoading"
-                                class="px-4 py-2 bg-gray-100 hover:bg-gray-200/30 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2">
-                            <svg class="w-4 h-4" :class="bypassLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                            </svg>
-                            刷新路由
-                        </button>
-                        <button @click="showAddBypass = true"
-                                class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg transition-colors flex items-center gap-2 text-orange-500">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                            </svg>
-                            添加绕过
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Gateway info -->
-                <div class="bg-white rounded-lg p-4 border border-light-border mb-6">
-                    <div class="flex items-center gap-6">
-                        <div>
-                            <span class="text-light-muted text-sm">默认网关:</span>
-                            <span class="ml-2 font-mono" x-text="bypassInfo.gateway || '-'"></span>
-                        </div>
-                        <div>
-                            <span class="text-light-muted text-sm">物理接口:</span>
-                            <span class="ml-2 font-mono" x-text="bypassInfo.interface || '-'"></span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Bypass list -->
-                <div class="bg-white rounded-lg border border-light-border">
-                    <div class="p-4 border-b border-light-border">
-                        <h3 class="font-semibold">绕过列表</h3>
-                    </div>
-                    <div class="divide-y divide-light-border">
-                        <template x-for="(entry, index) in bypassInfo.bypass_list || []" :key="index">
-                            <div class="flex items-center justify-between p-4 hover:bg-gray-100/30 transition-colors">
-                                <div class="flex-1">
-                                    <div class="font-mono" x-text="entry.address"></div>
-                                    <div class="text-sm text-light-muted" x-text="entry.comment || '无备注'"></div>
-                                </div>
-                                <button @click="removeBypass(entry.address)"
-                                        class="p-2 hover:bg-red-600/20 text-red-400 rounded transition-colors">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </template>
-                        <div x-show="!bypassInfo.bypass_list || bypassInfo.bypass_list.length === 0"
-                             class="p-8 text-center text-light-muted">
-                            <p>暂无绕过地址</p>
-                            <p class="text-sm mt-2">添加需要完全绕过代理的域名或 IP（如 FTP 服务器）</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Add bypass modal -->
-                <div x-show="showAddBypass" x-cloak
-                     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-                     @click.self="showAddBypass = false">
-                    <div class="bg-white rounded-lg p-6 w-full max-w-md border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">添加绕过地址</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">地址（域名或 IP）</label>
-                                <input type="text" x-model="newBypass.address"
-                                       placeholder="example.com 或 1.2.3.4"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-1">备注（可选）</label>
-                                <input type="text" x-model="newBypass.comment"
-                                       placeholder="FTP 服务器"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg focus:outline-none focus:border-blue-500">
-                            </div>
-                        </div>
-                        <div class="flex justify-end gap-3 mt-6">
-                            <button @click="showAddBypass = false"
-                                    class="px-4 py-2 bg-gray-100 hover:bg-gray-200/30 rounded-lg transition-colors">
-                                取消
-                            </button>
-                            <button @click="addBypass()"
-                                    :disabled="!newBypass.address"
-                                    class="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg transition-colors">
-                                添加
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Settings page -->
-            <div x-show="currentTab === 'settings'" x-cloak class="page-view">
-                <h2 class="text-2xl font-bold mb-6">系统设置</h2>
-
-                <template x-if="appConfig && appConfig.proxy && appConfig.dns">
-                <div class="space-y-6">
-                    <!-- DNS Settings -->
-                    <div class="bg-white rounded-lg p-6 border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">DNS 设置</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-sm text-light-muted mb-2">国内 DNS</label>
-                                <div class="space-y-2">
-                                    <template x-for="(dns, i) in appConfig.dns.domestic_servers || []" :key="i">
-                                        <div class="flex gap-2">
-                                            <input type="text" :value="dns"
-                                                   @input="appConfig.dns.domestic_servers[i] = $event.target.value"
-                                                   class="flex-1 px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-2">代理 DNS</label>
-                                <div class="space-y-2">
-                                    <template x-for="(dns, i) in appConfig.dns.proxy_servers || []" :key="i">
-                                        <div class="flex gap-2">
-                                            <input type="text" :value="dns"
-                                                   @input="appConfig.dns.proxy_servers[i] = $event.target.value"
-                                                   class="flex-1 px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- TUN Settings -->
-                    <div class="bg-white rounded-lg p-6 border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">TUN 设置</h3>
-                        <div class="space-y-4">
-                            <!-- TUN 开关 -->
-                            <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                                <input type="checkbox" x-model="appConfig.proxy.tun_enabled" id="tun_enabled"
-                                       class="w-5 h-5 rounded border-light-border bg-gray-50 accent-blue-500">
-                                <label for="tun_enabled" class="text-sm font-medium">启用 TUN 模式</label>
-                                <span class="text-xs text-light-muted ml-2">(接管本机所有流量)</span>
-                            </div>
-
-                            <!-- TUN 配置（仅在启用时显示） -->
-                            <div x-show="appConfig.proxy.tun_enabled" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <label class="block text-sm text-light-muted mb-2">TUN 地址</label>
-                                    <input type="text" x-model="appConfig.proxy.tun_address"
-                                           class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <input type="checkbox" x-model="appConfig.proxy.auto_route" id="auto_route"
-                                           class="w-4 h-4 rounded border-light-border bg-gray-50">
-                                    <label for="auto_route" class="text-sm">自动路由</label>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <input type="checkbox" x-model="appConfig.proxy.strict_route" id="strict_route"
-                                           class="w-4 h-4 rounded border-light-border bg-gray-50">
-                                    <label for="strict_route" class="text-sm">严格路由</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Proxy Ports Settings -->
-                    <div class="bg-white rounded-lg p-6 border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">代理端口设置</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-sm text-light-muted mb-2">SOCKS5 端口</label>
-                                <input type="number" x-model.number="appConfig.proxy.socks5_port"
-                                       min="0" max="65535" placeholder="0 表示禁用"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                <p class="text-xs text-light-muted mt-1">外部设备可通过 127.0.0.1:10808 连接</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-2">HTTP 代理端口</label>
-                                <input type="number" x-model.number="appConfig.proxy.http_proxy_port"
-                                       min="0" max="65535" placeholder="0 表示禁用"
-                                       class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                <p class="text-xs text-light-muted mt-1">外部设备可通过 127.0.0.1:10809 连接</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Node Selection Settings -->
-                    <div class="bg-white rounded-lg p-6 border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">节点设置</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm text-light-muted mb-2">节点选择偏好</label>
-                                <select x-model="appConfig.node_selection_preference"
-                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                    <option value="auto">自动</option>
-                                    <option value="us">美国</option>
-                                    <option value="sg">新加坡</option>
-                                    <option value="tw">台湾</option>
-                                    <option value="hk">香港</option>
-                                </select>
-                                <p class="text-xs text-light-muted mt-1">自动模式和失效补选时会按这里的偏好匹配节点。</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-2">测速目标</label>
-                                <select x-model="appConfig.proxy.test_url_mode"
-                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                    <option value="gstatic">Google Gstatic（默认）</option>
-                                    <option value="youtube_ggpht">YouTube</option>
-                                    <option value="skk">SKK</option>
-                                    <option value="jsdelivr">jsDelivr</option>
-                                    <option value="github">GitHub</option>
-                                </select>
-                                <p class="text-xs text-light-muted mt-1">默认使用 Gstatic 探测；也可以切到 YouTube、SKK、jsDelivr 或 GitHub 链路做测速。</p>
-                                <p class="text-xs text-light-muted mt-1">
-                                    当前生效: <span x-text="getCurrentTestURLModeLabel()"></span>
-                                </p>
-                            </div>
-                            <div>
-                                <label class="block text-sm text-light-muted mb-2">测速线程数</label>
-                                <select x-model.number="appConfig.proxy.test_workers"
-                                        class="w-full px-3 py-2 bg-gray-50 border border-light-border rounded-lg">
-                                    <option :value="1">1</option>
-                                    <option :value="2">2</option>
-                                    <option :value="3">3</option>
-                                    <option :value="4">4</option>
-                                    <option :value="5">5</option>
-                                </select>
-                                <p class="text-xs text-light-muted mt-1">控制测速专用 sing-box worker 数量，以及一键测速并发度。软路由性能较弱时可以先调低到 1~2 试试。</p>
-                                <p class="text-xs text-light-muted mt-1">
-                                    当前生效: <span x-text="getCurrentTestWorkerCount()"></span> 个
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Cache Management -->
-                    <div class="bg-white rounded-lg p-6 border border-light-border">
-                        <h3 class="text-lg font-semibold mb-4">缓存管理</h3>
-                        <div class="space-y-4">
-                            <p class="text-sm text-light-muted">
-                                DNS 缓存可以加速域名解析。如果遇到 DNS 解析问题，可以尝试清空缓存。
-                            </p>
-                            <div class="flex items-center gap-4">
-                                <button @click="clearCache()"
-                                        :disabled="clearingCache"
-                                        class="px-4 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 text-orange-500">
-                                    <svg x-show="clearingCache" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                                    </svg>
-                                    <span x-text="clearingCache ? '清空中...' : '清空 DNS 缓存'"></span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex justify-end">
-                        <button @click="saveConfig()"
-                                class="px-6 py-2 bg-white border-2 border-orange-500 hover:bg-orange-50 rounded-lg transition-colors text-orange-500">
-                            保存设置
-                        </button>
-                    </div>
-                </div>
-                </template>
-                <div x-show="!appConfig || !appConfig.proxy" class="text-light-muted text-center py-8">
-                    加载配置中...
-                </div>
-            </div>
-
-            <!-- Connections page -->
-            <div x-show="currentTab === 'connections'" x-cloak class="page-view h-full flex flex-col">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold">连接管理</h2>
-                    <div class="flex items-center gap-3">
-                        <div class="text-sm text-light-muted">
-                            <span class="text-green-400" x-text="'↓ ' + formatBytes(connStats.download)"></span>
-                            <span class="mx-2">|</span>
-                            <span class="text-orange-500" x-text="'↑ ' + formatBytes(connStats.upload)"></span>
-                            <span class="mx-2">|</span>
-                            <span x-text="connections.length + ' 连接'"></span>
-                        </div>
-                        <button @click="fetchConnections()"
-                                class="px-3 py-1 bg-white border-2 border-gray-300 hover:bg-gray-50 rounded-lg transition-colors text-sm text-gray-600">
-                            刷新
-                        </button>
-                        <button @click="closeAllConnections()"
-                                class="px-3 py-1 bg-white border-2 border-red-500 hover:bg-red-50 rounded-lg transition-colors text-sm text-red-500">
-                            断开全部
-                        </button>
-                    </div>
-                </div>
-
-                <div class="flex-1 bg-white rounded-lg border border-light-border overflow-hidden">
-                    <div class="overflow-x-auto h-full">
-                        <table class="w-full">
-                            <thead class="bg-gray-100 sticky top-0">
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">主机</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">网络</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">类型</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">出口链</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">下载</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">上传</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">时长</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-light-border overflow-y-auto">
-                                <template x-for="conn in connections" :key="conn.id">
-                                    <tr class="hover:bg-row-running transition-colors">
-                                        <td class="px-4 py-2">
-                                            <div class="max-w-xs truncate" x-text="conn.metadata.host || conn.metadata.destinationIP || '-'"></div>
-                                            <div class="text-xs text-light-muted" x-text="conn.metadata.destinationIP && conn.metadata.host ? conn.metadata.destinationIP : ''"></div>
-                                        </td>
-                                        <td class="px-4 py-2">
-                                            <span class="px-2 py-1 bg-gray-100 rounded text-xs" x-text="conn.metadata.network?.toUpperCase()"></span>
-                                        </td>
-                                        <td class="px-4 py-2 text-sm text-light-muted" x-text="conn.metadata.type || '-'"></td>
-                                        <td class="px-4 py-2">
-                                            <div class="flex items-center gap-1 text-sm">
-                                                <template x-for="(chain, i) in conn.chains" :key="i">
-                                                    <span>
-                                                        <span :class="chain === 'direct' ? 'text-green-400' : 'text-ngui-blue'" x-text="chain"></span>
-                                                        <span x-show="i < conn.chains.length - 1" class="text-light-muted mx-1">→</span>
-                                                    </span>
-                                                </template>
-                                            </div>
-                                        </td>
-                                        <td class="px-4 py-2 text-green-400 text-sm" x-text="formatBytes(conn.download)"></td>
-                                        <td class="px-4 py-2 text-orange-500 text-sm" x-text="formatBytes(conn.upload)"></td>
-                                        <td class="px-4 py-2 text-light-muted text-sm" x-text="formatDuration(conn.start)"></td>
-                                        <td class="px-4 py-2">
-                                            <button @click="closeConnection(conn.id)"
-                                                    class="px-2 py-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-xs transition-colors">
-                                                断开
+                    <div class="table-panel">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <button @click="toggleNodeSort('name')" class="table-sort">
+                                                节点 <span x-text="getNodeSortIndicator('name')"></span>
                                             </button>
+                                        </th>
+                                        <th>类型</th>
+                                        <th>订阅</th>
+                                        <th>服务器</th>
+                                        <th>
+                                            <button @click="toggleNodeSort('latency')" class="table-sort">
+                                                延迟 <span x-text="getNodeSortIndicator('latency')"></span>
+                                            </button>
+                                        </th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="node in sortedNodes" :key="node.name">
+                                        <tr :class="node.selected ? 'is-selected' : ''">
+                                            <td>
+                                                <div class="cell-main">
+                                                    <strong x-text="node.name === 'auto' ? '自动选择' : node.name"></strong>
+                                                    <small x-show="node.virtual && node.effective_node"
+                                                           x-text="'命中 ' + node.effective_node"></small>
+                                                    <small x-show="node.virtual && node.recommended_node && node.recommended_node !== node.effective_node"
+                                                           x-text="'推荐 ' + node.recommended_node"></small>
+                                                </div>
+                                            </td>
+                                            <td><span class="tag" x-text="node.type"></span></td>
+                                            <td class="muted">
+                                                <span x-show="node.subscription_names && node.subscription_names.length"
+                                                      x-text="node.subscription_names.join(', ')"></span>
+                                                <span x-show="!node.subscription_names || !node.subscription_names.length">-</span>
+                                            </td>
+                                            <td class="muted">
+                                                <span x-show="!node.virtual" x-text="node.server + ':' + node.port"></span>
+                                                <span x-show="node.virtual">自动选择</span>
+                                            </td>
+                                            <td>
+                                                <span x-show="node.latency > 0 && node.latency < 999"
+                                                      :class="'latency-chip ' + getNodeLatencyClass(node.latency)"
+                                                      x-text="node.latency + 'ms'"></span>
+                                                <span x-show="node.latency === 999" class="latency-chip is-bad">999ms</span>
+                                                <span x-show="node.latency === -1" class="latency-chip is-bad">超时</span>
+                                                <span x-show="!node.latency && node.latency !== -1" class="latency-chip is-idle">未测</span>
+                                            </td>
+                                            <td>
+                                                <div class="row-actions">
+                                                    <button @click="selectNode(node.name)"
+                                                            :disabled="node.selected"
+                                                            class="button is-small">
+                                                        <span x-text="node.virtual ? '启用' : '选择'"></span>
+                                                    </button>
+                                                    <button @click="applyRecommendedNode()"
+                                                            x-show="node.virtual"
+                                                            :disabled="!canApplyRecommended(node)"
+                                                            class="button is-small">
+                                                        推荐
+                                                    </button>
+                                                    <button @click="testNodeByName(node.name)"
+                                                            x-show="!node.virtual"
+                                                            :disabled="node.testing"
+                                                            class="button is-small">
+                                                        <span x-show="node.testing" class="spinner"></span>
+                                                        <span x-show="!node.testing">测速</span>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="nodes.length === 0">
+                                        <td colspan="6" class="empty-state">暂无节点，请先添加订阅</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section x-show="currentTab === 'subscriptions'" x-cloak class="page-view">
+                    <div class="page-toolbar">
+                        <div class="toolbar-stats">
+                            <div>
+                                <span>订阅</span>
+                                <strong x-text="subscriptions.length"></strong>
+                            </div>
+                            <div>
+                                <span>自动更新</span>
+                                <strong x-text="getAutoUpdateSubscriptionCount()"></strong>
+                            </div>
+                            <div>
+                                <span>24h 内更新</span>
+                                <strong x-text="getRecentSubscriptionCount()"></strong>
+                            </div>
+                        </div>
+                        <div class="toolbar-actions">
+                            <button @click="refreshSubscriptions()" :disabled="loading" class="button">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" :class="loading ? 'spin' : ''">
+                                    <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3z"></path>
+                                </svg>
+                                刷新
+                            </button>
+                            <button @click="showAddSubscription = true" class="button is-primary">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M11 5h2v14h-2z"></path>
+                                    <path d="M5 11h14v2H5z"></path>
+                                </svg>
+                                添加
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-panel">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>名称</th>
+                                        <th>地址</th>
+                                        <th>自动更新</th>
+                                        <th>间隔</th>
+                                        <th>上次更新</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="sub in subscriptions" :key="sub.id">
+                                        <tr>
+                                            <td><strong x-text="sub.name"></strong></td>
+                                            <td class="muted"><span class="url-cell" x-text="sub.url"></span></td>
+                                            <td>
+                                                <span class="tag" :class="getSubscriptionStatusClass(sub)"
+                                                      x-text="sub.auto_update ? '开启' : '关闭'"></span>
+                                            </td>
+                                            <td class="muted">
+                                                <span x-text="sub.auto_update ? (sub.update_interval || 60) + ' 分钟' : '-'"></span>
+                                            </td>
+                                            <td class="muted" x-text="sub.updated_at ? formatDate(sub.updated_at) : '-'"></td>
+                                            <td>
+                                                <div class="row-actions">
+                                                    <button @click="openEditSubscription(sub)" class="icon-button" title="编辑">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                            <path d="M5 18.1V21h2.9L18.4 10.5l-2.9-2.9z"></path>
+                                                            <path d="m19.3 9.6-2.9-2.9 1.4-1.4a1 1 0 0 1 1.4 0l1.5 1.5a1 1 0 0 1 0 1.4z"></path>
+                                                        </svg>
+                                                    </button>
+                                                    <button @click="refreshSubscription(sub)" class="icon-button" title="刷新">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                            <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3z"></path>
+                                                        </svg>
+                                                    </button>
+                                                    <button @click="deleteSubscription(sub.id)" class="icon-button is-danger" title="删除">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                            <path d="M7 21h10l1-13H6z"></path>
+                                                            <path d="M9 4h6l1 2h4v2H4V6h4z"></path>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="subscriptions.length === 0">
+                                        <td colspan="6" class="empty-state">
+                                            暂无订阅
+                                            <button @click="showAddSubscription = true" class="button is-small is-primary">添加订阅</button>
                                         </td>
                                     </tr>
-                                </template>
-                                <tr x-show="connections.length === 0">
-                                    <td colspan="8" class="px-4 py-8 text-center text-light-muted">
-                                        暂无活跃连接
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
-            </div>
+                </section>
 
-            <!-- Logs page -->
-            <div x-show="currentTab === 'logs'" x-cloak class="page-view h-full flex flex-col">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold">日志查看</h2>
-                    <div class="flex items-center gap-3">
-                        <input type="text" x-model="logSearch" placeholder="搜索域名/关键词..."
-                               class="px-3 py-2 bg-white border border-light-border rounded-lg text-sm w-48">
-                        <select x-model="logFilter"
-                                class="px-3 py-2 bg-white border border-light-border rounded-lg text-sm">
-                            <option value="all">全部日志</option>
-                            <option value="dns">DNS 查询</option>
-                            <option value="outbound">出站连接</option>
-                            <option value="urltest">节点切换</option>
-                            <option value="important">仅重要</option>
-                        </select>
-                        <select x-model="logLevel" @change="setLogLevel()"
-                                class="px-3 py-2 bg-white border border-light-border rounded-lg text-sm">
-                            <option value="trace">Trace</option>
-                            <option value="debug">Debug</option>
-                            <option value="info">Info</option>
-                            <option value="warn">Warn</option>
-                            <option value="error">Error</option>
-                        </select>
-                        <button @click="clearLogs()"
-                                class="px-4 py-2 bg-gray-100 hover:bg-gray-200/30 rounded-lg transition-colors text-sm">
-                            清空
-                        </button>
-                    </div>
-                </div>
+                <section x-show="currentTab === 'settings'" x-cloak class="page-view">
+                    <div class="settings-layout">
+                        <nav class="settings-nav">
+                            <button @click="setSettingsSection('basic')"
+                                    :class="settingsSection === 'basic' ? 'is-active' : ''">基础</button>
+                            <button @click="setSettingsSection('routing')"
+                                    :class="settingsSection === 'routing' ? 'is-active' : ''">路由</button>
+                            <button @click="setSettingsSection('bypass')"
+                                    :class="settingsSection === 'bypass' ? 'is-active' : ''">绕过</button>
+                            <button @click="setSettingsSection('diagnostics')"
+                                    :class="settingsSection === 'diagnostics' ? 'is-active' : ''">诊断</button>
+                        </nav>
 
-                <div class="flex-1 bg-white rounded-lg border border-light-border overflow-hidden">
-                    <div id="log-container" class="h-full overflow-y-auto p-4 font-mono text-sm scrollbar-thin">
-                        <template x-for="(log, index) in filteredLogs" :key="index">
-                            <div class="py-1">
-                                <span class="text-light-muted" x-text="formatLogTime(log.time)"></span>
-                                <span :class="{
-                                    'text-red-400': log.level === 'error' || log.level === 'fatal',
-                                    'text-yellow-400': log.level === 'warn',
-                                    'text-orange-500': log.level === 'debug',
-                                    'text-gray-500': log.level === 'trace',
-                                    'text-light-text': log.level === 'info'
-                                }" x-text="'[' + log.level.toUpperCase() + ']'"></span>
-                                <span x-html="highlightLog(log.message)"></span>
-                            </div>
-                        </template>
-                        <p x-show="filteredLogs.length === 0" class="text-light-muted text-center py-4">暂无匹配日志</p>
+                        <div class="settings-content">
+                            <template x-if="settingsSection === 'basic'">
+                                <section class="settings-section">
+                                    <template x-if="appConfig && appConfig.proxy && appConfig.dns">
+                                        <div class="settings-grid">
+                                            <div class="form-panel">
+                                                <h3>DNS</h3>
+                                                <div class="form-grid two">
+                                                    <label>
+                                                        <span>国内 DNS</span>
+                                                        <template x-for="(dns, i) in appConfig.dns.domestic_servers || []" :key="i">
+                                                            <input type="text" :value="dns"
+                                                                   @input="appConfig.dns.domestic_servers[i] = $event.target.value">
+                                                        </template>
+                                                    </label>
+                                                    <label>
+                                                        <span>代理 DNS</span>
+                                                        <template x-for="(dns, i) in appConfig.dns.proxy_servers || []" :key="i">
+                                                            <input type="text" :value="dns"
+                                                                   @input="appConfig.dns.proxy_servers[i] = $event.target.value">
+                                                        </template>
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div class="form-panel">
+                                                <h3>代理端口</h3>
+                                                <div class="form-grid two">
+                                                    <label>
+                                                        <span>SOCKS5</span>
+                                                        <input type="number" x-model.number="appConfig.proxy.socks5_port"
+                                                               min="0" max="65535" placeholder="0 表示禁用">
+                                                    </label>
+                                                    <label>
+                                                        <span>HTTP</span>
+                                                        <input type="number" x-model.number="appConfig.proxy.http_proxy_port"
+                                                               min="0" max="65535" placeholder="0 表示禁用">
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div class="form-panel">
+                                                <h3>TUN</h3>
+                                                <label class="toggle-row">
+                                                    <input type="checkbox" x-model="appConfig.proxy.tun_enabled">
+                                                    <span>启用 TUN 模式</span>
+                                                </label>
+                                                <div x-show="appConfig.proxy.tun_enabled" class="form-grid two">
+                                                    <label>
+                                                        <span>TUN 地址</span>
+                                                        <input type="text" x-model="appConfig.proxy.tun_address">
+                                                    </label>
+                                                    <label class="toggle-row inline">
+                                                        <input type="checkbox" x-model="appConfig.proxy.auto_route">
+                                                        <span>自动路由</span>
+                                                    </label>
+                                                    <label class="toggle-row inline">
+                                                        <input type="checkbox" x-model="appConfig.proxy.strict_route">
+                                                        <span>严格路由</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div class="form-panel">
+                                                <h3>测速与缓存</h3>
+                                                <div class="form-grid two">
+                                                    <label>
+                                                        <span>节点偏好</span>
+                                                        <select x-model="appConfig.node_selection_preference">
+                                                            <option value="auto">自动</option>
+                                                            <option value="us">美国</option>
+                                                            <option value="sg">新加坡</option>
+                                                            <option value="tw">台湾</option>
+                                                            <option value="hk">香港</option>
+                                                        </select>
+                                                    </label>
+                                                    <label>
+                                                        <span>测速目标</span>
+                                                        <select x-model="appConfig.proxy.test_url_mode">
+                                                            <option value="gstatic">Google Gstatic</option>
+                                                            <option value="youtube_ggpht">YouTube</option>
+                                                            <option value="skk">SKK</option>
+                                                            <option value="jsdelivr">jsDelivr</option>
+                                                            <option value="github">GitHub</option>
+                                                        </select>
+                                                    </label>
+                                                    <label>
+                                                        <span>测速线程</span>
+                                                        <select x-model.number="appConfig.proxy.test_workers">
+                                                            <option :value="1">1</option>
+                                                            <option :value="2">2</option>
+                                                            <option :value="3">3</option>
+                                                            <option :value="4">4</option>
+                                                            <option :value="5">5</option>
+                                                        </select>
+                                                    </label>
+                                                    <div class="button-stack">
+                                                        <span>DNS 缓存</span>
+                                                        <button @click="clearCache()"
+                                                                :disabled="clearingCache"
+                                                                class="button">
+                                                            <span x-text="clearingCache ? '清空中...' : '清空 DNS 缓存'"></span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="settings-actions">
+                                                <button @click="saveConfig()" class="button is-primary">保存设置</button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <div x-show="!appConfig || !appConfig.proxy" class="empty-state">加载配置中...</div>
+                                </section>
+                            </template>
+
+                            <template x-if="settingsSection === 'routing'">
+                                <section class="settings-section">
+                                    <div class="form-panel">
+                                        <div class="panel-title-row compact">
+                                            <h3>代理模式</h3>
+                                            <span x-text="getModeText(status.proxy_mode)"></span>
+                                        </div>
+                                        <div class="segmented">
+                                            <button @click="setProxyMode('rule')"
+                                                    :class="status.proxy_mode === 'rule' ? 'is-active' : ''">规则</button>
+                                            <button @click="setProxyMode('global')"
+                                                    :class="status.proxy_mode === 'global' ? 'is-active' : ''">全局</button>
+                                            <button @click="setProxyMode('direct')"
+                                                    :class="status.proxy_mode === 'direct' ? 'is-active' : ''">直连</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-panel">
+                                        <div class="panel-title-row compact">
+                                            <h3>自定义规则</h3>
+                                            <button @click="showAddRule = true" class="button is-small is-primary">添加</button>
+                                        </div>
+                                        <div class="rule-list">
+                                            <template x-for="(rule, index) in rulesInfo.custom_rules" :key="index">
+                                                <div class="rule-row">
+                                                    <span class="tag" x-text="rule.type"></span>
+                                                    <strong x-text="rule.value"></strong>
+                                                    <span class="muted">→</span>
+                                                    <span x-text="rule.outbound"></span>
+                                                    <button @click="removeCustomRule(index)" class="icon-button is-danger" title="删除">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                            <path d="m6 7 11 11 1-1L7 6z"></path>
+                                                            <path d="M17 6 6 17l1 1L18 7z"></path>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </template>
+                                            <p x-show="!rulesInfo.custom_rules || rulesInfo.custom_rules.length === 0"
+                                               class="empty-state compact">暂无自定义规则</p>
+                                        </div>
+                                    </div>
+
+                                    <details class="details-panel">
+                                        <summary>内置规则 <span x-text="rulesInfo.default_rules.length"></span></summary>
+                                        <div class="rule-list">
+                                            <template x-for="rule in rulesInfo.default_rules" :key="rule.name">
+                                                <div class="rule-row">
+                                                    <strong x-text="rule.name"></strong>
+                                                    <span class="muted" x-text="rule.description"></span>
+                                                    <span class="tag is-success">启用</span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <button @click="refreshRules()" class="button is-small">更新规则</button>
+                                    </details>
+                                </section>
+                            </template>
+
+                            <template x-if="settingsSection === 'bypass'">
+                                <section class="settings-section">
+                                    <div class="page-toolbar">
+                                        <div class="toolbar-stats">
+                                            <div>
+                                                <span>默认网关</span>
+                                                <strong x-text="bypassInfo.gateway || '-'"></strong>
+                                            </div>
+                                            <div>
+                                                <span>接口</span>
+                                                <strong x-text="bypassInfo.interface || '-'"></strong>
+                                            </div>
+                                            <div>
+                                                <span>地址</span>
+                                                <strong x-text="(bypassInfo.bypass_list || []).length"></strong>
+                                            </div>
+                                        </div>
+                                        <div class="toolbar-actions">
+                                            <button @click="refreshBypass()" :disabled="bypassLoading" class="button">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true" :class="bypassLoading ? 'spin' : ''">
+                                                    <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3z"></path>
+                                                </svg>
+                                                刷新路由
+                                            </button>
+                                            <button @click="showAddBypass = true" class="button is-primary">添加</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="list-panel">
+                                        <template x-for="(entry, index) in bypassInfo.bypass_list || []" :key="index">
+                                            <div class="list-row">
+                                                <div>
+                                                    <strong class="mono" x-text="entry.address"></strong>
+                                                    <span class="muted" x-text="entry.comment || '无备注'"></span>
+                                                </div>
+                                                <button @click="removeBypass(entry.address)" class="icon-button is-danger" title="删除">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                        <path d="M7 21h10l1-13H6z"></path>
+                                                        <path d="M9 4h6l1 2h4v2H4V6h4z"></path>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </template>
+                                        <div x-show="!bypassInfo.bypass_list || bypassInfo.bypass_list.length === 0"
+                                             class="empty-state">暂无绕过地址</div>
+                                    </div>
+                                </section>
+                            </template>
+
+                            <template x-if="settingsSection === 'diagnostics'">
+                                <section class="settings-section diagnostics-grid">
+                                    <div class="form-panel">
+                                        <div class="panel-title-row compact">
+                                            <h3>连接</h3>
+                                            <div class="toolbar-actions">
+                                                <span class="meta-chip" x-text="connections.length + ' 连接'"></span>
+                                                <button @click="fetchConnections()" class="button is-small">刷新</button>
+                                                <button @click="closeAllConnections()" class="button is-small is-danger">断开全部</button>
+                                            </div>
+                                        </div>
+                                        <div class="table-wrap compact-table">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>主机</th>
+                                                        <th>网络</th>
+                                                        <th>出口</th>
+                                                        <th>下载</th>
+                                                        <th>上传</th>
+                                                        <th>操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="conn in connections" :key="conn.id">
+                                                        <tr>
+                                                            <td>
+                                                                <div class="cell-main">
+                                                                    <strong x-text="conn.metadata.host || conn.metadata.destinationIP || '-'"></strong>
+                                                                    <small x-text="conn.metadata.destinationIP && conn.metadata.host ? conn.metadata.destinationIP : ''"></small>
+                                                                </div>
+                                                            </td>
+                                                            <td><span class="tag" x-text="conn.metadata.network?.toUpperCase()"></span></td>
+                                                            <td class="muted" x-text="(conn.chains || []).join(' → ') || '-'"></td>
+                                                            <td class="muted" x-text="formatBytes(conn.download)"></td>
+                                                            <td class="muted" x-text="formatBytes(conn.upload)"></td>
+                                                            <td>
+                                                                <button @click="closeConnection(conn.id)" class="button is-small is-danger">断开</button>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                    <tr x-show="connections.length === 0">
+                                                        <td colspan="6" class="empty-state compact">暂无活跃连接</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-panel">
+                                        <div class="panel-title-row compact">
+                                            <h3>日志</h3>
+                                            <div class="toolbar-actions">
+                                                <input type="text" x-model="logSearch" placeholder="搜索">
+                                                <select x-model="logFilter">
+                                                    <option value="all">全部</option>
+                                                    <option value="dns">DNS</option>
+                                                    <option value="outbound">出站</option>
+                                                    <option value="urltest">节点</option>
+                                                    <option value="important">重要</option>
+                                                </select>
+                                                <select x-model="logLevel" @change="setLogLevel()">
+                                                    <option value="trace">Trace</option>
+                                                    <option value="debug">Debug</option>
+                                                    <option value="info">Info</option>
+                                                    <option value="warn">Warn</option>
+                                                    <option value="error">Error</option>
+                                                </select>
+                                                <button @click="clearLogs()" class="button is-small">清空</button>
+                                            </div>
+                                        </div>
+                                        <div id="log-container" class="log-panel">
+                                            <template x-for="(log, index) in filteredLogs" :key="index">
+                                                <div class="log-line">
+                                                    <span class="muted" x-text="formatLogTime(log.time)"></span>
+                                                    <strong :class="{
+                                                        'is-error': log.level === 'error' || log.level === 'fatal',
+                                                        'is-warn': log.level === 'warn',
+                                                        'is-debug': log.level === 'debug',
+                                                        'is-trace': log.level === 'trace'
+                                                    }" x-text="'[' + log.level.toUpperCase() + ']'"></strong>
+                                                    <span x-html="highlightLog(log.message)"></span>
+                                                </div>
+                                            </template>
+                                            <p x-show="filteredLogs.length === 0" class="empty-state compact">暂无匹配日志</p>
+                                        </div>
+                                    </div>
+                                </section>
+                            </template>
+                        </div>
                     </div>
-                </div>
-            </div>
-        </main>
+                </section>
+            </main>
         </section>
     </div>
 
-    <!-- Toast notifications -->
-    <div class="fixed bottom-4 right-4 z-50 space-y-2">
+    <div x-show="showAddSubscription" x-cloak class="modal-backdrop" @click.self="showAddSubscription = false">
+        <div class="modal-card">
+            <h3>添加订阅</h3>
+            <label>
+                <span>名称</span>
+                <input type="text" x-model="newSubscription.name" placeholder="可选">
+            </label>
+            <label>
+                <span>地址</span>
+                <input type="url" x-model="newSubscription.url" placeholder="https://...">
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" x-model="newSubscription.auto_update">
+                <span>自动更新</span>
+            </label>
+            <label x-show="newSubscription.auto_update">
+                <span>更新间隔</span>
+                <input type="number" x-model.number="newSubscription.update_interval" min="5" placeholder="60">
+            </label>
+            <div class="modal-actions">
+                <button @click="showAddSubscription = false" class="button">取消</button>
+                <button @click="addSubscription()" :disabled="!newSubscription.url" class="button is-primary">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="showEditSubscription" x-cloak class="modal-backdrop" @click.self="showEditSubscription = false">
+        <div class="modal-card">
+            <h3>修改订阅</h3>
+            <label>
+                <span>名称</span>
+                <input type="text" x-model="editingSubscription.name">
+            </label>
+            <label>
+                <span>地址</span>
+                <input type="url" x-model="editingSubscription.url">
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" x-model="editingSubscription.auto_update">
+                <span>自动更新</span>
+            </label>
+            <label x-show="editingSubscription.auto_update">
+                <span>更新间隔</span>
+                <input type="number" x-model.number="editingSubscription.update_interval" min="5">
+            </label>
+            <div class="modal-actions">
+                <button @click="showEditSubscription = false" class="button">取消</button>
+                <button @click="updateSubscription()" :disabled="!editingSubscription.url" class="button is-primary">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="showAddRule" x-cloak class="modal-backdrop" @click.self="showAddRule = false">
+        <div class="modal-card">
+            <h3>添加规则</h3>
+            <label>
+                <span>类型</span>
+                <select x-model="newRule.type">
+                    <option value="domain">域名</option>
+                    <option value="domain_suffix">域名后缀</option>
+                    <option value="ip_cidr">IP CIDR</option>
+                    <option value="geosite">Geosite</option>
+                    <option value="geoip">GeoIP</option>
+                </select>
+            </label>
+            <label>
+                <span>值</span>
+                <input type="text" x-model="newRule.value" placeholder="example.com">
+            </label>
+            <label>
+                <span>出口</span>
+                <select x-model="newRule.outbound">
+                    <option value="proxy">代理</option>
+                    <option value="direct">直连</option>
+                    <option value="block">阻止</option>
+                </select>
+            </label>
+            <div class="modal-actions">
+                <button @click="showAddRule = false" class="button">取消</button>
+                <button @click="addCustomRule()" :disabled="!newRule.value" class="button is-primary">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="showAddBypass" x-cloak class="modal-backdrop" @click.self="showAddBypass = false">
+        <div class="modal-card">
+            <h3>添加绕过</h3>
+            <label>
+                <span>地址</span>
+                <input type="text" x-model="newBypass.address" placeholder="example.com 或 1.2.3.4">
+            </label>
+            <label>
+                <span>备注</span>
+                <input type="text" x-model="newBypass.comment" placeholder="可选">
+            </label>
+            <div class="modal-actions">
+                <button @click="showAddBypass = false" class="button">取消</button>
+                <button @click="addBypass()" :disabled="!newBypass.address" class="button is-primary">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-stack">
         <template x-for="(toast, index) in toasts" :key="index">
-            <div :class="toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-green-600' : 'bg-blue-600'"
-                 class="px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-slide-in text-white">
-                <span x-text="toast.message" class="text-white"></span>
-                <button @click="toasts.splice(index, 1)" class="opacity-70 hover:opacity-100 text-white">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                </button>
+            <div :class="'toast is-' + toast.type">
+                <span x-text="toast.message"></span>
+                <button @click="toasts.splice(index, 1)">×</button>
             </div>
         </template>
     </div>

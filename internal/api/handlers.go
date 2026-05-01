@@ -906,7 +906,7 @@ func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	logs := h.processMgr.GetLogs(100)
+	logs := h.processMgr.GetLogs(parseLogLimit(r, 100, singbox.DefaultMaxLogs))
 	h.sendJSON(w, logs)
 }
 

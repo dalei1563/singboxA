@@ -3,9 +3,11 @@ package singbox
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -18,6 +20,7 @@ const (
 	LogChannelBuffer = 100
 	StopTimeout      = 10 * time.Second
 	RestartDelay     = 500 * time.Millisecond
+	LogFileMaxBytes  = 5 * 1024 * 1024
 )
 
 type ProcessState int
@@ -56,6 +59,8 @@ type ProcessManager struct {
 	logChan    chan LogEntry
 	listeners  []chan LogEntry
 	lastLogMsg string // For deduplication
+	logFileMu  sync.Mutex
+	logFile    string
 }
 
 type LogEntry struct {
@@ -94,6 +99,7 @@ func (pm *ProcessManager) Initialize(binaryPath, configPath string) {
 	defer pm.mu.Unlock()
 	pm.binaryPath = binaryPath
 	pm.configPath = configPath
+	pm.logFile = defaultLogFilePath(configPath)
 }
 
 func (pm *ProcessManager) Start() error {
@@ -296,7 +302,10 @@ func (pm *ProcessManager) addLog(level, message string) {
 	if len(pm.logs) > pm.maxLogs {
 		pm.logs = pm.logs[len(pm.logs)-pm.maxLogs:]
 	}
+	logFile := pm.logFile
 	pm.mu.Unlock()
+
+	pm.appendLogFile(logFile, entry)
 
 	select {
 	case pm.logChan <- entry:
@@ -321,6 +330,50 @@ func (pm *ProcessManager) GetLogs(limit int) []LogEntry {
 	result := make([]LogEntry, limit)
 	copy(result, pm.logs[start:])
 	return result
+}
+
+func (pm *ProcessManager) GetLogFilePath() string {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.logFile
+}
+
+func (pm *ProcessManager) GetPersistentLogs(limit int) ([]LogEntry, string, error) {
+	logFile := pm.GetLogFilePath()
+	if logFile == "" {
+		return nil, "", nil
+	}
+
+	pm.logFileMu.Lock()
+	defer pm.logFileMu.Unlock()
+
+	capacity := limit
+	if capacity < 0 {
+		capacity = 0
+	}
+	entries := make([]LogEntry, 0, capacity)
+	for _, path := range []string{logFile + ".1", logFile} {
+		fileEntries, err := readLogFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, logFile, err
+		}
+		entries = append(entries, fileEntries...)
+	}
+
+	if limit <= 0 || limit > len(entries) {
+		limit = len(entries)
+	}
+	if limit == 0 {
+		return []LogEntry{}, logFile, nil
+	}
+
+	start := len(entries) - limit
+	result := make([]LogEntry, limit)
+	copy(result, entries[start:])
+	return result, logFile, nil
 }
 
 // ClearLogs clears all stored logs
@@ -382,6 +435,97 @@ func (pm *ProcessManager) CheckBinary() (bool, string) {
 	}
 
 	return true, string(output)
+}
+
+func defaultLogFilePath(configPath string) string {
+	if configPath == "" {
+		return ""
+	}
+
+	dir := filepath.Dir(configPath)
+	if filepath.Base(dir) == "singbox" {
+		dir = filepath.Dir(dir)
+	}
+	return filepath.Join(dir, "logs", "singbox.log")
+}
+
+func (pm *ProcessManager) appendLogFile(path string, entry LogEntry) {
+	if path == "" {
+		return
+	}
+
+	pm.logFileMu.Lock()
+	defer pm.logFileMu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return
+	}
+	rotateLogFileIfNeeded(path)
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	file.Write(append(data, '\n'))
+}
+
+func rotateLogFileIfNeeded(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= LogFileMaxBytes {
+		return
+	}
+	_ = os.Remove(path + ".1")
+	_ = os.Rename(path, path+".1")
+}
+
+func readLogFile(path string) ([]LogEntry, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	entries := make([]LogEntry, 0)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		entry, ok := parsePersistentLogLine(scanner.Text())
+		if ok {
+			entries = append(entries, entry)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func parsePersistentLogLine(line string) (LogEntry, bool) {
+	var jsonEntry LogEntry
+	if err := json.Unmarshal([]byte(line), &jsonEntry); err == nil && !jsonEntry.Time.IsZero() {
+		return jsonEntry, true
+	}
+
+	parts := strings.SplitN(line, "\t", 3)
+	if len(parts) != 3 {
+		return LogEntry{}, false
+	}
+	ts, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return LogEntry{}, false
+	}
+	message := strings.ReplaceAll(parts[2], "\\n", "\n")
+	message = strings.ReplaceAll(message, "\\r", "\r")
+	return LogEntry{
+		Time:    ts,
+		Level:   parts[1],
+		Message: message,
+	}, true
 }
 
 // parseLogLevel extracts log level from sing-box log line

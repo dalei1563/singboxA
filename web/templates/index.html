@@ -202,7 +202,7 @@
                                 <tbody>
                                     <template x-for="node in sortedNodes" :key="node.name">
                                         <tr :class="node.selected ? 'is-selected' : ''">
-                                            <td>
+                                            <td data-label="节点">
                                                 <div class="cell-main">
                                                     <strong x-text="node.name === 'auto' ? '自动选择' : node.name"></strong>
                                                     <small x-show="node.virtual && node.effective_node"
@@ -211,17 +211,17 @@
                                                            x-text="'推荐 ' + node.recommended_node"></small>
                                                 </div>
                                             </td>
-                                            <td><span class="tag" x-text="node.type"></span></td>
-                                            <td class="muted">
+                                            <td data-label="类型"><span class="tag" x-text="node.type"></span></td>
+                                            <td data-label="订阅" class="muted">
                                                 <span x-show="node.subscription_names && node.subscription_names.length"
                                                       x-text="node.subscription_names.join(', ')"></span>
                                                 <span x-show="!node.subscription_names || !node.subscription_names.length">-</span>
                                             </td>
-                                            <td class="muted">
+                                            <td data-label="服务器" class="muted">
                                                 <span x-show="!node.virtual" x-text="node.server + ':' + node.port"></span>
                                                 <span x-show="node.virtual">自动选择</span>
                                             </td>
-                                            <td>
+                                            <td data-label="延迟">
                                                 <span x-show="node.latency > 0 && node.latency < 999"
                                                       :class="'latency-chip ' + getNodeLatencyClass(node.latency)"
                                                       x-text="node.latency + 'ms'"></span>
@@ -229,7 +229,7 @@
                                                 <span x-show="node.latency === -1" class="latency-chip is-bad">超时</span>
                                                 <span x-show="!node.latency && node.latency !== -1" class="latency-chip is-idle">未测</span>
                                             </td>
-                                            <td>
+                                            <td data-label="操作">
                                                 <div class="row-actions">
                                                     <button @click="selectNode(node.name)"
                                                             :disabled="node.selected"
@@ -311,17 +311,17 @@
                                 <tbody>
                                     <template x-for="sub in subscriptions" :key="sub.id">
                                         <tr>
-                                            <td><strong x-text="sub.name"></strong></td>
-                                            <td class="muted"><span class="url-cell" x-text="sub.url"></span></td>
-                                            <td>
+                                            <td data-label="名称"><strong x-text="sub.name"></strong></td>
+                                            <td data-label="地址" class="muted"><span class="url-cell" x-text="sub.url"></span></td>
+                                            <td data-label="自动更新">
                                                 <span class="tag" :class="getSubscriptionStatusClass(sub)"
                                                       x-text="sub.auto_update ? '开启' : '关闭'"></span>
                                             </td>
-                                            <td class="muted">
+                                            <td data-label="间隔" class="muted">
                                                 <span x-text="sub.auto_update ? (sub.update_interval || 60) + ' 分钟' : '-'"></span>
                                             </td>
-                                            <td class="muted" x-text="sub.updated_at ? formatDate(sub.updated_at) : '-'"></td>
-                                            <td>
+                                            <td data-label="上次更新" class="muted" x-text="sub.updated_at ? formatDate(sub.updated_at) : '-'"></td>
+                                            <td data-label="操作">
                                                 <div class="row-actions">
                                                     <button @click="openEditSubscription(sub)" class="icon-button" title="编辑">
                                                         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -618,17 +618,17 @@
                                                 <tbody>
                                                     <template x-for="conn in connections" :key="conn.id">
                                                         <tr>
-                                                            <td>
+                                                            <td data-label="主机">
                                                                 <div class="cell-main">
                                                                     <strong x-text="conn.metadata.host || conn.metadata.destinationIP || '-'"></strong>
                                                                     <small x-text="conn.metadata.destinationIP && conn.metadata.host ? conn.metadata.destinationIP : ''"></small>
                                                                 </div>
                                                             </td>
-                                                            <td><span class="tag" x-text="conn.metadata.network?.toUpperCase()"></span></td>
-                                                            <td class="muted" x-text="(conn.chains || []).join(' → ') || '-'"></td>
-                                                            <td class="muted" x-text="formatBytes(conn.download)"></td>
-                                                            <td class="muted" x-text="formatBytes(conn.upload)"></td>
-                                                            <td>
+                                                            <td data-label="网络"><span class="tag" x-text="conn.metadata.network?.toUpperCase()"></span></td>
+                                                            <td data-label="出口" class="muted" x-text="(conn.chains || []).join(' → ') || '-'"></td>
+                                                            <td data-label="下载" class="muted" x-text="formatBytes(conn.download)"></td>
+                                                            <td data-label="上传" class="muted" x-text="formatBytes(conn.upload)"></td>
+                                                            <td data-label="操作">
                                                                 <button @click="closeConnection(conn.id)" class="button is-small is-danger">断开</button>
                                                             </td>
                                                         </tr>

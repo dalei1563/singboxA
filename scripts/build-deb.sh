@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PACKAGE_NAME="singboxa"
 APP_NAME="singboxA"
-VERSION="${VERSION:-1.0.5}"
+VERSION="${VERSION:-1.0.6}"
 SINGBOX_VERSION="${SINGBOX_VERSION:-1.13.7}"
 DEB_ARCH="${DEB_ARCH:-$(dpkg --print-architecture)}"
 

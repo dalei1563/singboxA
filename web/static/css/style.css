@@ -33,12 +33,17 @@ body {
     min-height: 100%;
 }
 
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
 body.app-body {
     margin: 0;
     background: var(--app-bg);
     color: var(--text);
     font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
     font-size: 14px;
+    overflow-x: hidden;
 }
 
 button,
@@ -46,10 +51,12 @@ input,
 select,
 textarea {
     font: inherit;
+    max-width: 100%;
 }
 
 button {
     cursor: pointer;
+    touch-action: manipulation;
 }
 
 button:disabled {
@@ -482,6 +489,8 @@ svg {
 .table-wrap {
     width: 100%;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
 }
 
 table {
@@ -1010,50 +1019,105 @@ textarea:focus {
         font-size: 13px;
     }
 
+    .app-shell {
+        min-height: 100svh;
+        display: block;
+    }
+
     .app-sidebar {
-        padding: 12px;
-        gap: 12px;
+        position: fixed;
+        inset: auto 0 0 0;
+        z-index: 50;
+        height: auto;
+        padding: 8px max(10px, env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-right));
+        border-right: 0;
+        border-bottom: 0;
+        border-top: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.12);
+        gap: 0;
     }
 
-    .brand-row {
-        min-height: 38px;
-    }
-
-    .brand-mark {
-        width: 32px;
-        height: 32px;
-    }
-
-    .brand-copy h1 {
-        font-size: 16px;
+    .brand-row,
+    .sidebar-status {
+        display: none;
     }
 
     .sidebar-nav {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
     }
 
     .nav-item {
-        min-height: 38px;
-        padding: 0 8px;
+        min-height: 56px;
+        padding: 6px 4px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        text-align: center;
+        font-size: 11px;
+        line-height: 1.15;
+    }
+
+    .nav-icon {
+        width: 20px;
+    }
+
+    .workspace {
+        min-height: 100svh;
     }
 
     .workspace-header {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 10px;
+        position: sticky;
+        top: 0;
+        z-index: 24;
+        min-height: 52px;
+        padding: 10px 12px;
+        align-items: center;
+        flex-direction: row;
+        gap: 8px;
+    }
+
+    .workspace-header h2 {
+        font-size: 18px;
     }
 
     .header-meta {
-        width: 100%;
+        width: auto;
+        flex: 1;
+        justify-content: flex-end;
+        gap: 6px;
     }
 
-    .dashboard-grid,
-    .form-grid.two {
-        grid-template-columns: 1fr;
+    .header-meta .meta-chip {
+        display: none;
     }
 
-    .span-2 {
-        grid-column: span 1;
+    .status-chip,
+    .meta-chip {
+        min-height: 26px;
+        padding: 0 9px;
+        font-size: 11px;
+    }
+
+    .workspace-main {
+        padding: 12px 12px calc(88px + env(safe-area-inset-bottom));
+        overflow: visible;
+    }
+
+    .page-view {
+        max-width: none;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .span-2,
+    .control-panel,
+    .mode-panel {
+        grid-column: 1 / -1;
     }
 
     .control-panel,
@@ -1061,31 +1125,294 @@ textarea:focus {
     .mode-panel,
     .form-panel,
     .details-panel {
-        padding: 16px;
+        padding: 14px;
     }
 
-    .panel-title-row,
+    .metric-panel {
+        min-height: 96px;
+    }
+
+    .metric-panel strong {
+        margin-top: 8px;
+        font-size: 18px;
+    }
+
+    .metric-panel small {
+        margin-top: 8px;
+        font-size: 11px;
+    }
+
+    .panel-title-row p {
+        display: none;
+    }
+
+    .control-panel .panel-title-row,
+    .mode-panel .panel-title-row {
+        align-items: center;
+        flex-direction: row;
+    }
+
     .page-toolbar {
         align-items: stretch;
         flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
     }
 
-    .action-row,
-    .toolbar-actions {
+    .action-row {
         width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 14px;
     }
 
     .button {
-        flex: 1;
+        width: 100%;
+        min-height: 42px;
+        padding: 0 12px;
+    }
+
+    .button.is-small {
+        min-height: 36px;
+        padding: 0 10px;
+    }
+
+    .icon-button {
+        width: 38px;
+        height: 38px;
+    }
+
+    .segmented button {
+        min-height: 40px;
     }
 
     .toolbar-stats {
+        width: calc(100vw - 24px);
+        min-width: 0;
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .toolbar-stats div {
+        flex: 0 0 136px;
+        min-height: 50px;
+        padding: 8px 10px;
+        scroll-snap-align: start;
+    }
+
+    .toolbar-actions {
         width: 100%;
-        grid-template-columns: 1fr;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .toolbar-actions .meta-chip {
+        width: 100%;
+        grid-column: 1 / -1;
+    }
+
+    .toolbar-actions input,
+    .toolbar-actions select {
+        min-width: 0;
+    }
+
+    .settings-layout {
+        gap: 10px;
     }
 
     .settings-nav {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        position: sticky;
+        top: 53px;
+        z-index: 20;
+        display: flex;
+        grid-template-columns: none;
+        gap: 6px;
+        overflow-x: auto;
+        margin: 0 -2px;
+        padding: 6px;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .settings-nav button {
+        flex: 1 0 72px;
+        min-height: 36px;
+        padding: 0 10px;
+        text-align: center;
+    }
+
+    .form-grid.two {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-actions {
+        position: sticky;
+        bottom: calc(78px + env(safe-area-inset-bottom));
+        z-index: 12;
+    }
+
+    .settings-actions .button {
+        box-shadow: 0 8px 22px rgba(37, 99, 235, 0.24);
+    }
+
+    .table-panel {
+        border: 0;
+        background: transparent;
+        overflow: visible;
+    }
+
+    .table-wrap,
+    .compact-table {
+        max-height: none;
+        border: 0;
+        overflow: visible;
+    }
+
+    table,
+    thead,
+    tbody,
+    tr,
+    td {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    table,
+    .compact-table table {
+        min-width: 0;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    thead {
+        display: none;
+    }
+
+    tbody {
+        display: grid;
+        gap: 10px;
+    }
+
+    tbody tr {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        overflow: hidden;
+    }
+
+    tbody tr:hover {
+        background: var(--surface);
+    }
+
+    tbody tr.is-selected {
+        border-color: rgba(37, 99, 235, 0.28);
+        background: var(--primary-soft);
+    }
+
+    td {
+        min-height: 44px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border-soft);
+        display: grid;
+        grid-template-columns: 82px minmax(0, 1fr);
+        align-items: center;
+        gap: 10px;
+    }
+
+    td:last-child {
+        border-bottom: 0;
+    }
+
+    tbody tr:last-child td {
+        border-bottom: 1px solid var(--border-soft);
+    }
+
+    tbody tr:last-child td:last-child {
+        border-bottom: 0;
+    }
+
+    td::before {
+        content: attr(data-label);
+        color: var(--text-faint);
+        font-size: 12px;
+        font-weight: 750;
+    }
+
+    td:not([data-label])::before,
+    td.empty-state::before,
+    td[data-label="节点"]::before,
+    td[data-label="名称"]::before,
+    td[data-label="主机"]::before,
+    td[data-label="操作"]::before {
+        display: none;
+    }
+
+    td.empty-state {
+        min-height: 0;
+        display: block;
+        padding: 18px 12px;
+        text-align: center;
+    }
+
+    td[data-label="节点"],
+    td[data-label="名称"],
+    td[data-label="主机"],
+    td[data-label="操作"] {
+        grid-template-columns: 1fr;
+    }
+
+    td[data-label="操作"] .row-actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+        gap: 8px;
+    }
+
+    td[data-label="操作"] .button,
+    td[data-label="操作"] .icon-button {
+        width: 100%;
+    }
+
+    .url-cell {
+        max-width: none;
+        white-space: normal;
+        overflow: visible;
+        overflow-wrap: anywhere;
+        text-overflow: clip;
+    }
+
+    .rule-row,
+    .list-row {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        padding: 10px 0;
+    }
+
+    .list-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .rule-row .icon-button,
+    .list-row .icon-button {
+        margin-left: 0;
+    }
+
+    .log-panel {
+        height: 320px;
+        padding: 10px;
+        font-size: 11px;
+    }
+
+    .log-line {
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr);
+        gap: 6px;
     }
 
     .modal-backdrop {
@@ -1095,9 +1422,37 @@ textarea:focus {
 
     .modal-card {
         width: 100%;
+        max-height: calc(100svh - 24px);
+        overflow: auto;
     }
 
-    .log-panel {
-        height: 300px;
+    .toast-stack {
+        right: 12px;
+        left: 12px;
+        bottom: calc(80px + env(safe-area-inset-bottom));
+        max-width: none;
+    }
+}
+
+@media (max-width: 420px) {
+    .workspace-header h2 {
+        font-size: 17px;
+    }
+
+    .status-chip,
+    .meta-chip {
+        padding: 0 8px;
+    }
+
+    .toolbar-stats div {
+        flex-basis: 128px;
+    }
+
+    td {
+        grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    .metric-panel strong {
+        font-size: 16px;
     }
 }

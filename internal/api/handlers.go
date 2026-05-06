@@ -40,6 +40,8 @@ type Handlers struct {
 	dnsFailures  []time.Time
 	healing      bool
 	lastHeal     time.Time
+	streamMu     sync.Mutex
+	streamSlots  chan struct{}
 }
 
 const (
@@ -51,13 +53,14 @@ const (
 func NewHandlers() *Handlers {
 	cfgMgr := config.GetManager()
 	h := &Handlers{
-		cfgMgr:     cfgMgr,
-		processMgr: singbox.GetProcessManager(),
-		testCore:   singbox.GetTestCoreManager(),
-		updater:    subscription.GetUpdater(),
-		generator:  singbox.NewConfigGenerator(cfgMgr.GetDataDir()),
-		rulesMgr:   rules.NewRuleManager(),
-		bypassMgr:  bypass.GetManager(),
+		cfgMgr:      cfgMgr,
+		processMgr:  singbox.GetProcessManager(),
+		testCore:    singbox.GetTestCoreManager(),
+		updater:     subscription.GetUpdater(),
+		generator:   singbox.NewConfigGenerator(cfgMgr.GetDataDir()),
+		rulesMgr:    rules.NewRuleManager(),
+		bypassMgr:   bypass.GetManager(),
+		streamSlots: make(chan struct{}, maxLogStreamClients),
 	}
 	h.updater.SetRefreshCallback(h.handleAutomaticRefresh)
 	h.startHealthMonitor()
@@ -910,11 +913,6 @@ func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, logs)
 }
 
-// GetLogsSSE handles Server-Sent Events for real-time logs
-func (h *Handlers) GetLogsSSE(w http.ResponseWriter, r *http.Request) {
-	h.handleSSELogs(w, r)
-}
-
 // ClearLogs clears all stored logs
 func (h *Handlers) ClearLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" && r.Method != "DELETE" {
@@ -985,56 +983,6 @@ func (h *Handlers) HandleLogLevel(w http.ResponseWriter, r *http.Request) {
 		h.SetLogLevel(w, r)
 	default:
 		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
-	}
-}
-
-func (h *Handlers) handleSSELogs(w http.ResponseWriter, r *http.Request) {
-	// Set SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// Restrict CORS to localhost
-	origin := r.Header.Get("Origin")
-	if origin == "" || strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "http://127.0.0.1") {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "SSE not supported", http.StatusInternalServerError)
-		return
-	}
-
-	// Subscribe to logs
-	logChan := h.processMgr.SubscribeLogs()
-	defer h.processMgr.UnsubscribeLogs(logChan)
-
-	// Send existing logs first
-	existingLogs := h.processMgr.GetLogs(100)
-	for _, log := range existingLogs {
-		data, err := json.Marshal(log)
-		if err != nil {
-			continue // Skip malformed entries
-		}
-		fmt.Fprintf(w, "data: %s\n\n", data)
-	}
-	flusher.Flush()
-
-	// Send new logs as they arrive
-	ctx := r.Context()
-	for {
-		select {
-		case log := <-logChan:
-			data, err := json.Marshal(log)
-			if err != nil {
-				continue // Skip malformed entries
-			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
-		case <-ctx.Done():
-			return
-		}
 	}
 }
 

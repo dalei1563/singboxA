@@ -68,6 +68,7 @@ function app() {
         bypassInfo: { bypass_list: [], gateway: '', interface: '' },
         bypassLoading: false,
         eventSource: null,
+        logStreamRetryTimer: null,
         clearingCache: false,
         nodeSort: {
             field: null
@@ -260,15 +261,17 @@ function app() {
         },
 
         connectSSE() {
-            if (this.eventSource) {
-                this.eventSource.close();
-            }
-
-            this.eventSource = new EventSource('/api/logs/stream');
+            this.disconnectSSE();
+            const controller = new AbortController();
+            this.eventSource = controller;
             let scrollTimeout = null;
-
-            this.eventSource.onmessage = (event) => {
-                const log = JSON.parse(event.data);
+            const appendLog = (event) => {
+                if (!event || event.type === 'heartbeat') return;
+                const log = {
+                    time: event.time,
+                    level: event.level || 'info',
+                    message: event.message || ''
+                };
                 this.logs.push(log);
                 if (this.logs.length > 200) {
                     this.logs = this.logs.slice(-200);
@@ -284,17 +287,52 @@ function app() {
                 }
             };
 
-            this.eventSource.onerror = () => {
-                this.eventSource.close();
-                if (this.currentTab === 'settings' && this.settingsSection === 'diagnostics') {
-                    setTimeout(() => this.connectSSE(), 5000);
+            fetch('/api/logs/stream?include=all', {
+                signal: controller.signal,
+                headers: { Accept: 'application/x-ndjson' }
+            }).then(async (response) => {
+                if (!response.ok || !response.body) {
+                    throw new Error(`日志流连接失败: ${response.status}`);
                 }
-            };
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed) continue;
+                        try {
+                            appendLog(JSON.parse(trimmed));
+                        } catch (e) {
+                            console.error('Failed to parse log stream event:', e);
+                        }
+                    }
+                }
+            }).catch((e) => {
+                if (controller.signal.aborted || this.eventSource !== controller) return;
+                console.error('Failed to connect log stream:', e);
+                if (this.currentTab === 'settings' && this.settingsSection === 'diagnostics') {
+                    this.logStreamRetryTimer = setTimeout(() => this.connectSSE(), 5000);
+                }
+            });
         },
 
         disconnectSSE() {
+            if (this.logStreamRetryTimer) {
+                clearTimeout(this.logStreamRetryTimer);
+                this.logStreamRetryTimer = null;
+            }
             if (this.eventSource) {
-                this.eventSource.close();
+                if (typeof this.eventSource.abort === 'function') {
+                    this.eventSource.abort();
+                } else if (typeof this.eventSource.close === 'function') {
+                    this.eventSource.close();
+                }
                 this.eventSource = null;
             }
         },

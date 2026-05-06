@@ -52,7 +52,7 @@ func (r *Router) setupRoutes() {
 
 	r.mux.HandleFunc("/api/logs", r.corsMiddleware(r.handlers.GetLogs))
 	r.mux.HandleFunc("/api/logs/history", r.corsMiddleware(r.handlers.GetLogHistory))
-	r.mux.HandleFunc("/api/logs/stream", r.handlers.GetLogsSSE) // SSE endpoint
+	r.mux.HandleFunc("/api/logs/stream", r.corsMiddleware(r.handlers.StreamLogsNDJSON))
 	r.mux.HandleFunc("/api/logs/clear", r.corsMiddleware(r.handlers.ClearLogs))
 	r.mux.HandleFunc("/api/logs/level", r.corsMiddleware(r.handlers.HandleLogLevel))
 

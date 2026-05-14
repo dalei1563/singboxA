@@ -89,6 +89,13 @@ func main() {
 		bypassMgr.StartAutoRefresh(1 * time.Hour)
 	}
 
+	// Prepare local rule-set cache before auto-start. The generated sing-box
+	// config uses local files only, so a temporary CDN failure cannot make the
+	// core fail during startup.
+	if err := ensureRuleFiles(cfgMgr.GetDataDir()); err != nil {
+		log.Printf("Warning: failed to ensure rule files: %v", err)
+	}
+
 	// Auto-start sing-box if enabled
 	state := cfgMgr.GetState()
 	if state.AutoStart {
@@ -109,11 +116,6 @@ func main() {
 		} else {
 			log.Println("No nodes available, skipping auto-start")
 		}
-	}
-
-	// Pre-download rule files if not exist (for first-time installation)
-	if err := ensureRuleFiles(cfgMgr.GetDataDir()); err != nil {
-		log.Printf("Warning: failed to ensure rule files: %v", err)
 	}
 
 	// Create router
@@ -204,90 +206,12 @@ func validateConfig(cfg config.Config) error {
 	return nil
 }
 
-// ensureRuleFiles downloads rule files if they don't exist
+// ensureRuleFiles keeps a local rule-set cache ready for generated configs.
 func ensureRuleFiles(dataDir string) error {
-	singboxDir := filepath.Join(dataDir, "singbox")
-
-	// Check if rule files already exist
-	entries, err := os.ReadDir(singboxDir)
-	if err != nil {
-		return err
+	result, err := singbox.EnsureRuleSetFiles(dataDir)
+	log.Printf("Rule-set cache ready: updated=%d kept=%d failed=%d", len(result.Updated), len(result.Kept), len(result.Failed))
+	for tag, reason := range result.Failed {
+		log.Printf("  Warning: failed to update rule-set %s: %s", tag, reason)
 	}
-
-	hasRuleFile := false
-	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".srs" {
-			hasRuleFile = true
-			break
-		}
-	}
-
-	if hasRuleFile {
-		return nil // Rule files exist, no need to download
-	}
-
-	log.Println("No rule files found, downloading...")
-
-	ruleURLs := []string{
-		"https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/chnroutes.txt.srs",
-		"https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/accelerated-domains.china.conf.srs",
-		"https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/apple.china.conf.srs",
-		"https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/google.china.conf.srs",
-		"https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
-		"https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
-		"https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	for _, url := range ruleURLs {
-		filename := filepath.Base(url)
-		filepath := filepath.Join(singboxDir, filename)
-
-		if _, err := os.Stat(filepath); err == nil {
-			continue // File exists
-		}
-
-		log.Printf("  Downloading %s...", filename)
-		resp, err := client.Get(url)
-		if err != nil {
-			log.Printf("  Warning: failed to download %s: %v", filename, err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("  Warning: failed to download %s: HTTP %d", filename, resp.StatusCode)
-			continue
-		}
-
-		out, err := os.Create(filepath)
-		if err != nil {
-			log.Printf("  Warning: failed to create %s: %v", filename, err)
-			continue
-		}
-
-		if _, err := out.ReadFrom(resp.Body); err != nil {
-			out.Close()
-			os.Remove(filepath)
-			log.Printf("  Warning: failed to save %s: %v", filename, err)
-			continue
-		}
-		out.Close()
-	}
-
-	// Verify at least some files were downloaded
-	entries, _ = os.ReadDir(singboxDir)
-	count := 0
-	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".srs" {
-			count++
-		}
-	}
-
-	if count == 0 {
-		return fmt.Errorf("failed to download any rule files")
-	}
-
-	log.Printf("Downloaded %d rule files", count)
-	return nil
+	return err
 }

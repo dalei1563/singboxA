@@ -161,7 +161,7 @@ type RouteConfig struct {
 	DefaultDomainResolver string      `json:"default_domain_resolver,omitempty"`
 }
 
-// RuleSet for remote geoip/geosite rules
+// RuleSet describes local or remote sing-box rule-set entries.
 type RuleSet struct {
 	Tag            string `json:"tag"`
 	Type           string `json:"type"`
@@ -248,6 +248,7 @@ func (g *ConfigGenerator) Generate(nodes []Outbound, cfg config.Config, state co
 }
 
 func (g *ConfigGenerator) generateDNS(cfg config.Config) *DNSConfig {
+	availableRuleSets := LocalRuleSetTags(g.dataDir)
 	dns := &DNSConfig{
 		Final:          "proxy-dns",
 		Strategy:       "prefer_ipv4", // 优先 IPv4，兼容性更好
@@ -352,30 +353,24 @@ func (g *ConfigGenerator) generateDNS(cfg config.Config) *DNSConfig {
 			},
 			Server: domesticTag,
 		},
-
-		// 5. China sites from comprehensive domain lists - use domestic DNS
-		// Using dnsmasq-china-list which is more complete than geosite-cn
-		{
-			RuleSet: []string{
-				"geosite-cn",    // 基础中国域名
-				"china-domains", // dnsmasq-china-list 加速域名
-				"apple-cn",      // Apple 中国服务
-				"google-cn",     // Google 中国服务
-			},
-			Server: domesticTag,
-		},
-
-		// 6. Ads and tracking domains - block
-		{
+	}
+	if ruleSets := filterAvailableRuleSets([]string{"geosite-cn", "china-domains", "apple-cn", "google-cn"}, availableRuleSets); len(ruleSets) > 0 {
+		dns.Rules = append(dns.Rules, DNSRule{
+			RuleSet: ruleSets,
+			Server:  domesticTag,
+		})
+	}
+	if hasRuleSet("geosite-category-ads-all", availableRuleSets) {
+		dns.Rules = append(dns.Rules, DNSRule{
 			RuleSet: []string{"geosite-category-ads-all"},
 			Action:  "reject",
-		},
-
-		// 7. Known foreign domains use FakeIP (prevents DNS leaks)
-		{
+		})
+	}
+	if hasRuleSet("geosite-geolocation-!cn", availableRuleSets) {
+		dns.Rules = append(dns.Rules, DNSRule{
 			RuleSet: []string{"geosite-geolocation-!cn"},
 			Server:  "fakeip-dns",
-		},
+		})
 	}
 
 	// Final: unknown domains use proxy DNS to get real IP
@@ -477,6 +472,7 @@ func containsTag(tags []string, target string) bool {
 }
 
 func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config) *RouteConfig {
+	availableRuleSets := LocalRuleSetTags(g.dataDir)
 	// Get domestic DNS tag for default_domain_resolver
 	domesticDNSTag := "domestic-dns"
 	if len(cfg.DNS.DomesticServers) > 0 {
@@ -523,6 +519,9 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 		case "geoip":
 			r.RuleSet = []string{"geoip-" + rule.Value}
 		}
+		if len(r.RuleSet) > 0 && len(filterAvailableRuleSets(r.RuleSet, availableRuleSets)) != len(r.RuleSet) {
+			continue
+		}
 		customRules = append(customRules, r)
 	}
 
@@ -564,113 +563,42 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 			Port:   []int{443},
 			Action: "reject", // Block browser DoH
 		},
-		// Block ads and tracking (route level)
-		{
+	}
+	if hasRuleSet("geosite-category-ads-all", availableRuleSets) {
+		rules = append(rules, RouteRule{
 			RuleSet: []string{"geosite-category-ads-all"},
 			Action:  "reject",
-		},
+		})
 	}
 
 	// User-defined rules should take priority over the built-in direct/proxy split.
 	rules = append(rules, customRules...)
 
 	rules = append(rules,
-		// Private networks direct
 		RouteRule{
 			IPIsPrivate: true,
 			Action:      "route",
 			Outbound:    "direct",
 		},
-		// China direct using comprehensive domain lists
-		RouteRule{
-			RuleSet: []string{
-				"geosite-cn",
-				"china-domains",
-				"apple-cn",
-				"google-cn",
-			},
+	)
+	if ruleSets := filterAvailableRuleSets([]string{"geosite-cn", "china-domains", "apple-cn", "google-cn"}, availableRuleSets); len(ruleSets) > 0 {
+		rules = append(rules, RouteRule{
+			RuleSet:  ruleSets,
 			Action:   "route",
 			Outbound: "direct",
-		},
-		// China direct using BGP-based IP list (more accurate than MaxMind geoip)
-		RouteRule{
+		})
+	}
+	if hasRuleSet("chnroutes-bgp", availableRuleSets) {
+		rules = append(rules, RouteRule{
 			RuleSet:  []string{"chnroutes-bgp"},
 			Action:   "route",
 			Outbound: "direct",
-		},
-	)
+		})
+	}
 
 	route.Rules = rules
 
-	// Use remote rule_set from multiple sources
-	// Dreista/sing-box-rule-set-cn provides more accurate BGP-based IP list and comprehensive domain lists
-	route.RuleSet = []RuleSet{
-		// BGP-based China IP list (more accurate than MaxMind geoip-cn)
-		// Source: misakaio/chnroutes2 - updated daily from BGP feed
-		{
-			Tag:            "chnroutes-bgp",
-			Type:           "remote",
-			Format:         "binary",
-			URL:            "https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/chnroutes.txt.srs",
-			DownloadDetour: "direct",
-			UpdateInterval: "1d",
-		},
-		// Comprehensive China domain list from dnsmasq-china-list
-		// Much more complete than geosite-cn
-		{
-			Tag:            "china-domains",
-			Type:           "remote",
-			Format:         "binary",
-			URL:            "https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/accelerated-domains.china.conf.srs",
-			DownloadDetour: "direct",
-			UpdateInterval: "1d",
-		},
-		// Apple China services
-		{
-			Tag:            "apple-cn",
-			Type:           "remote",
-			Format:         "binary",
-			URL:            "https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/apple.china.conf.srs",
-			DownloadDetour: "direct",
-			UpdateInterval: "1d",
-		},
-		// Google China services (translate, etc.)
-		{
-			Tag:            "google-cn",
-			Type:           "remote",
-			Format:         "binary",
-			URL:            "https://testingcf.jsdelivr.net/gh/Dreista/sing-box-rule-set-cn@rule-set/google.china.conf.srs",
-			DownloadDetour: "direct",
-			UpdateInterval: "1d",
-		},
-		// Base geosite-cn (fallback)
-		{
-			Tag:            "geosite-cn",
-			Type:           "remote",
-			Format:         "binary",
-			URL:            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
-			DownloadDetour: "direct",
-			UpdateInterval: "1d",
-		},
-		// Domain rules - Foreign (for FakeIP)
-		{
-			Tag:            "geosite-geolocation-!cn",
-			Type:           "remote",
-			Format:         "binary",
-			URL:            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
-			DownloadDetour: "direct",
-			UpdateInterval: "1d",
-		},
-		// Ads blocking
-		{
-			Tag:            "geosite-category-ads-all",
-			Type:           "remote",
-			Format:         "binary",
-			URL:            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
-			DownloadDetour: "direct",
-			UpdateInterval: "1d",
-		},
-	}
+	route.RuleSet = LocalRuleSets(g.dataDir)
 
 	// Global 模式：清除路由规则（但保留规则集供 DNS 使用），所有流量走 route.Final
 	if state.ProxyMode == "global" {
@@ -678,6 +606,20 @@ func (g *ConfigGenerator) generateRoute(state config.AppState, cfg config.Config
 	}
 
 	return route
+}
+
+func filterAvailableRuleSets(tags []string, available map[string]bool) []string {
+	filtered := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if hasRuleSet(tag, available) {
+			filtered = append(filtered, tag)
+		}
+	}
+	return filtered
+}
+
+func hasRuleSet(tag string, available map[string]bool) bool {
+	return available[tag]
 }
 
 func (g *ConfigGenerator) SaveConfig(config *SingBoxConfig, path string) error {

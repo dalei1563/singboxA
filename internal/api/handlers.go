@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -816,18 +815,22 @@ func (h *Handlers) RefreshRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update last rule update time
-	if err := h.rulesMgr.SetLastRuleUpdate(); err != nil {
-		h.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update rule time: %v", err))
+	result, err := singbox.RefreshRuleSetFiles(h.cfgMgr.GetDataDir(), true)
+	if err != nil {
+		h.sendError(w, http.StatusBadGateway, fmt.Sprintf("Failed to refresh rule cache: %v", err))
 		return
 	}
+	for tag, reason := range result.Failed {
+		h.processMgr.AddLog("warn", fmt.Sprintf("规则集刷新失败，已保留本地可用缓存：%s: %s", tag, reason))
+	}
 
-	// Delete rule cache files to force re-download
-	dataDir := h.cfgMgr.GetDataDir()
-	ruleCacheDir := filepath.Join(dataDir, "singbox")
-	if err := h.clearRuleCache(ruleCacheDir); err != nil {
-		// Log but don't fail - cache clear is not critical
-		fmt.Printf("Warning: failed to clear rule cache: %v\n", err)
+	if len(result.Updated) > 0 {
+		if err := h.rulesMgr.SetLastRuleUpdate(); err != nil {
+			h.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update rule time: %v", err))
+			return
+		}
+	} else {
+		h.processMgr.AddLog("warn", "规则集刷新未获取到新文件，继续使用本地可用缓存")
 	}
 
 	// Regenerate config and restart if running
@@ -845,25 +848,8 @@ func (h *Handlers) RefreshRules(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, map[string]interface{}{
 		"success":          true,
 		"last_rule_update": h.rulesMgr.GetLastRuleUpdate(),
+		"rule_sets":        result,
 	})
-}
-
-// clearRuleCache deletes .srs cache files in the given directory
-func (h *Handlers) clearRuleCache(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".srs") {
-			filePath := filepath.Join(dir, entry.Name())
-			if err := os.Remove(filePath); err != nil {
-				return err
-			}
-			fmt.Printf("Deleted rule cache: %s\n", filePath)
-		}
-	}
-	return nil
 }
 
 func (h *Handlers) HandleProxyMode(w http.ResponseWriter, r *http.Request) {
@@ -1167,6 +1153,15 @@ func (h *Handlers) generateConfig() error {
 	}
 	cfg := h.cfgMgr.GetConfig()
 	state := h.cfgMgr.GetState()
+
+	ruleResult, ruleErr := singbox.EnsureRuleSetFiles(h.cfgMgr.GetDataDir())
+	if ruleErr != nil {
+		h.processMgr.AddLog("warn", fmt.Sprintf("规则集缓存不可用，已生成降级路由配置：%v", ruleErr))
+	} else {
+		for tag, reason := range ruleResult.Failed {
+			h.processMgr.AddLog("warn", fmt.Sprintf("规则集缓存更新失败，已保留本地可用缓存：%s: %s", tag, reason))
+		}
+	}
 
 	sbConfig, err := h.generator.Generate(nodes, cfg, state)
 	if err != nil {

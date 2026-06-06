@@ -14,14 +14,17 @@
                 <div class="brand-mark">S</div>
                 <div class="brand-copy">
                     <h1>SingBoxA</h1>
-                    <span x-text="status.state === 'running' ? '运行中' : '已停止'"></span>
+                    <span class="brand-state"
+                          :class="status.state === 'running' ? 'is-running' : 'is-stopped'"
+                          x-text="status.state === 'running' ? '运行中' : '已停止'"></span>
                 </div>
             </div>
 
-            <nav class="sidebar-nav">
+            <nav class="sidebar-nav" aria-label="主导航">
                 <template x-for="item in navItems" :key="item.key">
                     <button @click="setTab(item.key)"
                             :class="currentTab === item.key ? 'is-active' : ''"
+                            :aria-current="currentTab === item.key ? 'page' : null"
                             class="nav-item">
                         <span class="nav-icon" x-html="item.icon"></span>
                         <span x-text="item.label"></span>
